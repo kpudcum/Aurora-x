@@ -364,7 +364,6 @@ function Aurora:CreateWindow(titleText, subtitle)
 	local isMobile = UIS.TouchEnabled and not UIS.MouseEnabled
 	local initialScale = isMobile and 0.65 or 0.85
 	local uiscale = new("UIScale", { Scale = initialScale })
-	local userScale = nil -- slider ile secilen boyut: kapatip acinca bu korunur
 	uiscale.Parent = holder
 	holder.Parent = gui
 
@@ -382,7 +381,6 @@ function Aurora:CreateWindow(titleText, subtitle)
 	local scaleTok = 0
 	function Aurora:SetMenuScale(scaleVal)
 		local target = math.clamp(scaleVal, 0.4, 1.5)
-		userScale = target
 		scaleTok = scaleTok + 1
 		local my = scaleTok
 		task.delay(0.12, function()
@@ -636,10 +634,10 @@ function Aurora:CreateWindow(titleText, subtitle)
 				holder.Position = UDim2.fromOffset(math.floor(vp.X / 2), math.floor(vp.Y / 2))
 			end
 			holder.Visible = true
-			tween(uiscale, 0.5, { Scale = userScale or fitScale() }, Enum.EasingStyle.Back)
+			tween(uiscale, 0.5, { Scale = fitScale() }, Enum.EasingStyle.Back)
 			tween(bgLayer, 0.35, { GroupTransparency = 0 })
 		else
-			tween(uiscale, 0.25, { Scale = userScale and (userScale * 0.85) or initialScale }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+			tween(uiscale, 0.25, { Scale = initialScale }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
 			tween(bgLayer, 0.25, { GroupTransparency = 1 })
 			task.delay(0.26, function() if not isOpen then holder.Visible = false end end)
 		end
@@ -1721,7 +1719,7 @@ local SkyAPI = (function()
 	local function nebBuild(dt)
 		nebClear()
 		if not dt or not SKY.Detail then return end
-		local function layer(name, sx, sy, rateMul, sizeMul, tr, ca, cb, midc)
+		local function layer(name, sx, sy, rateMul, sizeMul, tr, ca, cb)
 			local part = Instance.new("Part")
 			part.Name = name
 			part.Anchored = true
@@ -1733,7 +1731,7 @@ local SkyAPI = (function()
 			part.Size = Vector3.new(sx, sy, sx)
 			local em = Instance.new("ParticleEmitter")
 			em.Texture = "rbxasset://textures/particles/smoke_main.dds"
-			local mid = midc or dt.c3 or ca:Lerp(cb, 0.5)
+			local mid = dt.c3 or ca:Lerp(cb, 0.5)
 			em.Color = ColorSequence.new({ ColorSequenceKeypoint.new(0, ca), ColorSequenceKeypoint.new(0.5, mid), ColorSequenceKeypoint.new(1, cb) })
 			local sz = dt.size * sizeMul
 			em.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, sz, sz * 0.4), NumberSequenceKeypoint.new(1, sz, sz * 0.4) })
@@ -1752,15 +1750,10 @@ local SkyAPI = (function()
 			return part
 		end
 		-- ust katman (tepe) + ufuk katmani: yakin ve belirgin renk, tum gokyuzunu boyar
-		local tcol, bcol = SKY.over.topc, SKY.over.botc
-		local tA, tB, tM = dt.c1, dt.c2, nil
-		if tcol then tA, tB, tM = tcol, tcol:Lerp(dt.c2, 0.45), tcol:Lerp(dt.c3 or dt.c2, 0.3) end
-		local bA, bB, bM = dt.c2, dt.c1, nil
-		if bcol then bA, bB, bM = bcol, bcol:Lerp(dt.c1, 0.45), bcol:Lerp(dt.c3 or dt.c1, 0.3) end
-		local top = layer("AuroraSkyNebula", 1300, 300, 3.2, 0.8, math.max(0.45, dt.tr - 0.3), tA, tB, tM)
+		local top = layer("AuroraSkyNebula", 1300, 300, 3.2, 0.8, math.max(0.45, dt.tr - 0.3), dt.c1, dt.c2)
 		top:SetAttribute("h", 300)
 		top.Parent = workspace.CurrentCamera
-		local low = layer("AuroraSkyNebulaLow", 1500, 50, 4, 0.7, math.max(0.4, dt.tr - 0.38), bA, bB, bM)
+		local low = layer("AuroraSkyNebulaLow", 1500, 50, 4, 0.7, math.max(0.4, dt.tr - 0.38), dt.c2, dt.c1)
 		low.Parent = top
 		-- gece gokyuzlerinde: parlayan yildiz tozu katmani
 		local pp = PRESETS[SKY.Name]
@@ -1848,16 +1841,6 @@ local SkyAPI = (function()
 		end
 		Lighting.FogEnd = 100000
 		Lighting.FogStart = 0
-		-- gokyuzunun UST ve ALT renkleri: preset degerleri (veya elle secilen Sky Top / Sky Bottom) sahneye uygulanir
-		local tc, bc = SKY.over.topc or p.top, SKY.over.botc or p.bot
-		pcall(function()
-			Lighting.ColorShift_Top = tc
-			Lighting.ColorShift_Bottom = bc
-			Lighting.OutdoorAmbient = SKY.over.topc and tc:Lerp(p.out, 0.5) or p.out
-			Lighting.Ambient = SKY.over.botc and bc:Lerp(p.amb, 0.5) or p.amb
-			Lighting.FogColor = p.fog
-			Lighting.Brightness = p.bri
-		end)
 		local a = ensure("Atmosphere", "AuroraSky_Atmo")
 		a.Density = SKY.over.dens or (p.atmo.d > 0 and math.max(p.atmo.d, 0.5) or 0)
 		a.Offset = p.atmo.d > 0 and 0.15 or 0
@@ -2464,23 +2447,9 @@ local SkyAPI = (function()
 		end
 	end))
 
-	local nebTok = 0
 	return {
 		Order = ORDER,
-		Set = function(n)
-			-- onceki preset icin elle secilen atmosfer/ufuk renkleri yeni gokyuzunun renklerini bozmasin
-			SKY.over.acol, SKY.over.dec, SKY.over.topc, SKY.over.botc = nil, nil, nil, nil
-			pcall(setPreset, n)
-		end,
-		GetColors = function()
-			local pr = SKY.Cur
-			if not pr then return nil end
-			local dt = DETAIL[SKY.Name]
-			-- ust/alt rengi gorunen nebula katmaninin rengiyle ayni olsun
-			local tc = SKY.over.topc or (dt and dt.c1) or pr.top
-			local bc = SKY.over.botc or (dt and dt.c2) or pr.bot
-			return SKY.over.acol or pr.atmo.col, SKY.over.dec or pr.atmo.dec, tc, bc
-		end,
+		Set = function(n) pcall(setPreset, n) end,
 		Reset = function() pcall(reset) end,
 		SetClock = function(v)
 			SKY.over.time = v
@@ -2540,16 +2509,7 @@ local SkyAPI = (function()
 		SetLightning = function(on) SKY.Lightning = on end,
 		Over = function(k, v)
 			SKY.over[k] = v
-			if SKY.Cur then
-				pcall(applyLight, SKY.Cur)
-				if k == "topc" or k == "botc" then
-					nebTok = nebTok + 1
-					local my = nebTok
-					task.delay(0.25, function()
-						if my == nebTok and SKY.Cur then pcall(nebBuild, DETAIL[SKY.Name]) end
-					end)
-				end
-			end
+			if SKY.Cur then pcall(applyLight, SKY.Cur) end
 		end,
 	}
 end)()
@@ -2865,20 +2825,54 @@ do
 		return raw.X >= p.X and raw.X <= p.X + sz.X and raw.Y >= p.Y and raw.Y <= p.Y + sz.Y
 	end
 	local function mouseRaw() return UIS:GetMouseLocation() end
-	local function touchRaw(pos) return pos + GuiSvc:GetGuiInset() end
+	-- DUZELTME: dokunma konumu (InputObject.Position) Vector3 gelir; eskiden Vector3 + Vector2 hata verip
+	-- mobilde tum dokunma girdisini oldurdugu icin kamera donmuyordu (PC'de fare yolu etkilenmiyordu)
+	local function touchRaw(pos) return Vector2.new(pos.X, pos.Y) + GuiSvc:GetGuiInset() end
 
-	-- mobil: bos ekranda tek parmak surukle; PC: sag tik basili tutup fareyi oynat, tekerlek ile yakinlastir
+	-- mobil: bos ekranda tek parmak surukle = bak, iki parmak = yakinlastir/uzaklastir (pinch)
+	local TOUCHPOS = {}   -- aktif bakis parmaklari: input -> son konum
+	local pinchLast = nil
+	local function touchCount()
+		local n = 0
+		for _ in pairs(CAM.Touch) do n = n + 1 end
+		return n
+	end
+	local function pinchDist()
+		local pts = {}
+		for inp in pairs(CAM.Touch) do
+			local p = TOUCHPOS[inp]
+			if p then table.insert(pts, p) end
+			if #pts == 2 then break end
+		end
+		if #pts == 2 then return (pts[1] - pts[2]).Magnitude end
+		return nil
+	end
+
+	-- PC: sag tik basili tutup fareyi oynat, tekerlek ile yakinlastir | mobil: yukaridaki dokunma hareketleri
 	table.insert(conns, UIS.InputBegan:Connect(function(i)
-		if i.UserInputType == Enum.UserInputType.MouseButton2 then
+		local t = i.UserInputType
+		if t == Enum.UserInputType.MouseButton2 then
 			CAM.R = not overMenu(mouseRaw())
-		elseif i.UserInputType == Enum.UserInputType.Touch then
-			if not CAM.On or overMenu(touchRaw(i.Position)) then return end
-			if touchOk(i.Position) then CAM.Touch[i] = true end
+		elseif t == Enum.UserInputType.Touch then
+			if not CAM.On then return end
+			local ok, blocked = pcall(function() return overMenu(touchRaw(i.Position)) end)
+			if ok and blocked then return end
+			if touchOk(i.Position) then
+				CAM.Touch[i] = true
+				TOUCHPOS[i] = Vector2.new(i.Position.X, i.Position.Y)
+				pinchLast = pinchDist()
+			end
 		end
 	end))
 	table.insert(conns, UIS.InputEnded:Connect(function(i)
-		if i.UserInputType == Enum.UserInputType.Touch then CAM.Touch[i] = nil
-		elseif i.UserInputType == Enum.UserInputType.MouseButton2 then CAM.R = false end
+		local t = i.UserInputType
+		if t == Enum.UserInputType.Touch then
+			CAM.Touch[i] = nil
+			TOUCHPOS[i] = nil
+			pinchLast = pinchDist()
+		elseif t == Enum.UserInputType.MouseButton2 then
+			CAM.R = false
+		end
 	end))
 	table.insert(conns, UIS.InputChanged:Connect(function(i)
 		if not CAM.On then return end
@@ -2890,8 +2884,19 @@ do
 				CAM.Pitch = math.clamp(CAM.Pitch - i.Delta.Y * 0.004, -1.35, 1.35)
 			end
 		elseif t == Enum.UserInputType.Touch and CAM.Touch[i] then
-			CAM.Yaw = CAM.Yaw - i.Delta.X * 0.005
-			CAM.Pitch = math.clamp(CAM.Pitch - i.Delta.Y * 0.005, -1.35, 1.35)
+			TOUCHPOS[i] = Vector2.new(i.Position.X, i.Position.Y)
+			if touchCount() >= 2 then
+				-- iki parmak: pinch ile uzaklik
+				local d = pinchDist()
+				if d and pinchLast then
+					CAM.Dist = math.clamp(CAM.Dist - (d - pinchLast) * 0.03, 4, 40)
+				end
+				pinchLast = d
+			else
+				-- tek parmak: bak
+				CAM.Yaw = CAM.Yaw - i.Delta.X * 0.005
+				CAM.Pitch = math.clamp(CAM.Pitch - i.Delta.Y * 0.005, -1.35, 1.35)
+			end
 		elseif t == Enum.UserInputType.MouseWheel then
 			if not overMenu(mouseRaw()) then
 				CAM.Dist = math.clamp(CAM.Dist - i.Position.Z * 2, 4, 40)
@@ -2904,7 +2909,7 @@ do
 		if not on then releaseCam() end
 	end)
 	pC:AddSlider("Camera Distance", 4, 40, 12, function(v) CAM.Dist = v end, 1)
-	pC:AddLabel("Always outside camera, even when the game switches to first person. PC: hold right mouse and move the mouse to look around (works with the menu open, outside the window), arrow keys also turn the camera, scroll to zoom. Mobile: drag on empty screen.")
+	pC:AddLabel("Always outside camera, even when the game switches to first person. PC: hold right mouse and move the mouse to look around (works with the menu open, outside the window), arrow keys also turn the camera, scroll to zoom. Mobile: drag on empty screen, pinch with two fingers to zoom.")
 
 	gui.Destroying:Connect(function()
 		S.Kill, S.Dodge, S.SlapBtn, S.Third = false, false, false, false
@@ -2916,25 +2921,9 @@ end
 -- VISUALS SEKME (sadece Custom Sky)
 local Visuals = Window:AddTab("Visuals", "o")
 local v3 = Visuals:AddSection("Custom Sky")
-local skySync = false
-local pAtmoCol, pHorizonCol, pTopCol, pBotCol
-local SKY_DEF_ATMO, SKY_DEF_HORIZON = Color3.fromRGB(200, 200, 255), Color3.fromRGB(255, 150, 120)
-local SKY_DEF_TOP, SKY_DEF_BOT = Color3.fromRGB(110, 150, 255), Color3.fromRGB(255, 190, 140)
--- renk secicileri aktif gokyuzunun gercek renklerine esitler (override tetiklemeden)
-local function syncSkyPickers()
-	local ac, dc, tc, bc = SkyAPI.GetColors()
-	ac, dc, tc, bc = ac or SKY_DEF_ATMO, dc or SKY_DEF_HORIZON, tc or SKY_DEF_TOP, bc or SKY_DEF_BOT
-	skySync = true
-	if pAtmoCol then pcall(pAtmoCol.Set, ac) end
-	if pHorizonCol then pcall(pHorizonCol.Set, dc) end
-	if pTopCol then pcall(pTopCol.Set, tc) end
-	if pBotCol then pcall(pBotCol.Set, bc) end
-	skySync = false
-end
 v3:AddDropdown("Sky Preset", SkyAPI.Order, "Default", function(o)
 	SkyAPI.Set(o)
 	Aurora:Notify("Custom Sky", T_("Sky: ") .. tostring(o), 2.5)
-	syncSkyPickers()
 end)
 v3:AddToggle("Sky Details (clouds / nebula)", true, function(on) SkyAPI.SetDetail(on) end)
 v3:AddToggle("Shooting Stars", true, function(on) SkyAPI.SetShooting(on) end)
@@ -2948,16 +2937,13 @@ v3:AddToggle("Particles (petal / snow / ember)", true, function(on) SkyAPI.SetPa
 v3:AddSlider("Particle Density", 0.2, 3, 1, function(v) SkyAPI.SetDensity(v) end, 0.1)
 v3:AddSlider("Star Count", 0, 5000, 3000, function(v) SkyAPI.Over("stars", math.floor(v)) end, 100)
 v3:AddSlider("Atmosphere Density", 0, 1, 0.3, function(v) SkyAPI.Over("dens", v) end, 0.05)
-pTopCol = v3:AddColorPicker("Sky Top Color", SKY_DEF_TOP, function(c) if not skySync then SkyAPI.Over("topc", c) end end)
-pBotCol = v3:AddColorPicker("Sky Bottom Color", SKY_DEF_BOT, function(c) if not skySync then SkyAPI.Over("botc", c) end end)
-pAtmoCol = v3:AddColorPicker("Atmosphere Color", SKY_DEF_ATMO, function(c) if not skySync then SkyAPI.Over("acol", c) end end)
-pHorizonCol = v3:AddColorPicker("Horizon Color", SKY_DEF_HORIZON, function(c) if not skySync then SkyAPI.Over("dec", c) end end)
+v3:AddColorPicker("Atmosphere Color", Color3.fromRGB(200, 200, 255), function(c) SkyAPI.Over("acol", c) end)
+v3:AddColorPicker("Horizon Color", Color3.fromRGB(255, 150, 120), function(c) SkyAPI.Over("dec", c) end)
 v3:AddToggle("Apply Preset Time (day/night)", true, function(on) SkyAPI.SetTime(on) end)
 v3:AddSlider("Sky Time (hour)", 0, 24, 12, function(v) SkyAPI.SetClock(v) end, 0.5)
 v3:AddButton("Reset Sky", function()
 	SkyAPI.Reset()
 	Aurora:Notify("Custom Sky", "Sky reset", 2.5)
-	syncSkyPickers()
 end)
 
 local Settings = Window:AddTab("Settings", "o")
