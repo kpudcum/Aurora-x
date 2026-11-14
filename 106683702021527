@@ -2393,10 +2393,15 @@ local SkyAPI = (function()
 		local p = PRESETS[name]
 		SKY.Cur = p
 		SKY.Name = name
-		applyLight(p)
-		fxBuild(p)
-		rainBuild(p)
-		nebBuild(DETAIL[name])
+		-- bir katman hata verirse digerleri yine de kurulsun (hata konsola yazilir)
+		local function stepSky(label, fn, ...)
+			local ok, e = pcall(fn, ...)
+			if not ok then warn("[Aurora Sky] " .. label .. " failed: " .. tostring(e)) end
+		end
+		stepSky("light", applyLight, p)
+		stepSky("effects", fxBuild, p)
+		stepSky("rain", rainBuild, p)
+		stepSky("nebula", nebBuild, DETAIL[name])
 	end
 
 	-- oyun ayarlari ezmesin diye ayarlari yarim saniyede bir tekrar uygula; parcaciklar kamerayi takip eder
@@ -2404,7 +2409,7 @@ local SkyAPI = (function()
 		if not SKY.Cur then return end
 		acc = acc + dt
 		if rain.cfg then pcall(rainUpdate, dt) end
-		if acc >= 0.5 then
+		if acc >= 0.15 then
 			acc = 0
 			pcall(applyLight, SKY.Cur)
 			-- oyun kendi Sky/Atmosphere'ini geri koyduysa tekrar gizle (kendi gokyuzumuzun ustune binmesin)
@@ -2449,7 +2454,10 @@ local SkyAPI = (function()
 
 	return {
 		Order = ORDER,
-		Set = function(n) pcall(setPreset, n) end,
+		Set = function(n)
+			local ok, e = pcall(setPreset, n)
+			if not ok then warn("[Aurora Sky] preset failed: " .. tostring(e)) end
+		end,
 		Reset = function() pcall(reset) end,
 		SetClock = function(v)
 			SKY.over.time = v
@@ -2549,7 +2557,10 @@ hCredits:AddCredit("3qr311", "Scripter")
 local Player = Window:AddTab("Player", "o")
 do
 	local pS = Player:AddSection("Slap Battle")
-	local S = { Kill = false, Dodge = false, SlapBtn = false, Third = true }
+	local S = { Kill = false, Dodge = false, SlapBtn = false, Rapid = false, Third = true }
+	local CNT = { total = 0, last = 0, dirty = false, pulse = false, on = true }
+	local function cntStart() CNT.last = 0 end
+	local function cntHit() CNT.total = CNT.total + 1 CNT.last = CNT.last + 1 CNT.dirty = true end
 	local R = {}                -- remote'lar ve arayuz parcalari (bulundukca doldurulur)
 	local BURST = 50            -- tek seferde gonderilen tokat sayisi
 	local queueRunning = false
@@ -2570,8 +2581,10 @@ do
 		local ev = R.slap
 		if not ev then return end
 		task.spawn(function()
+			cntStart()
 			for i = 1, BURST do
 				pcall(function() ev:FireServer(100) end)
+				cntHit()
 				if i % 5 == 0 then task.wait() end
 			end
 		end)
@@ -2592,6 +2605,7 @@ do
 			pcall(function()
 				local count, speed = RAPID_COUNT, RAPID_SPEED
 				local sent, t0 = 0, os.clock()
+				cntStart()
 				while sent < count do
 					if not gui.Parent then break end
 					local target = count
@@ -2600,6 +2614,7 @@ do
 					end
 					for _ = sent + 1, target do
 						pcall(function() ev:FireServer(RAPID_VALUE) end)
+						cntHit()
 					end
 					sent = target
 					if sent < count then task.wait() end
@@ -2610,7 +2625,7 @@ do
 	end
 
 	-- Kill veya Slap Button acikken slap butonu gorundukce SlapQueue'yu tetikle
-	local function queueWanted() return S.SlapBtn or S.Kill end
+	local function queueWanted() return S.SlapBtn or S.Kill or S.Rapid end
 	local function startQueueLoop()
 		if queueRunning or not R.queue or not R.slapbut then return end
 		queueRunning = true
@@ -2633,9 +2648,15 @@ do
 			if not meter then return end
 			R.meter = meter
 			meter:GetPropertyChangedSignal("Visible"):Connect(function()
-				if S.Kill and meter.Visible then burst() end
+				if meter.Visible then
+					if S.Kill then burst() end
+					if S.Rapid then rapidHit() end
+				end
 			end)
-			if S.Kill and meter.Visible then burst() end
+			if meter.Visible then
+				if S.Kill then burst() end
+				if S.Rapid then rapidHit() end
+			end
 		end)
 		task.spawn(function()
 			local sb = waitFor(sg, "slapbut")
@@ -2679,9 +2700,9 @@ do
 		end)
 	end)
 
-	local tAll, tKill, tDodge, tBtn
+	local tAll, tKill, tDodge, tBtn, tRapid
 	tAll = pS:AddToggle("Enable All", false, function(on)
-		for _, t in ipairs({ tKill, tDodge, tBtn }) do
+		for _, t in ipairs({ tKill, tDodge, tBtn, tRapid }) do
 			if t then t.Set(on) end
 		end
 	end)
@@ -2699,11 +2720,80 @@ do
 		S.SlapBtn = on
 		if on then startQueueLoop() end
 	end)
-	pS:AddButton("Rapid Hit", rapidHit)
+	tRapid = pS:AddToggle("Rapid Hit", false, function(on)
+		S.Rapid = on
+		if not on then return end
+		if not (R.slap and R.meter) then
+			Aurora:Notify("Rapid Hit", "Waiting for the game's slap objects...", 3, "warn")
+		end
+		if R.meter and R.meter.Visible then rapidHit() end
+		startQueueLoop()
+	end)
 	pS:AddSlider("Rapid Hit Count", 0, 1000, 20, function(v) RAPID_COUNT = math.floor(v) end, 1)
 	pS:AddSlider("Rapid Hit Speed (per sec)", 0, 1000, 20, function(v) RAPID_SPEED = math.floor(v) end, 1)
-	pS:AddLabel("Rapid Hit: Count = how many slaps are sent, Speed = slaps per second (0 sends them all at once). You can't trigger it again until it finishes.")
+	pS:AddLabel("Rapid Hit: when on, every slap sends Count hits at Speed hits per second (0 = all at once), like Kill does with its burst. Turn it off any time.")
+	pS:AddToggle("Hit Counter", true, function(on)
+		CNT.on = on
+		if CNT.hud then CNT.hud.Visible = on end
+	end)
+	pS:AddButton("Reset Hit Counter", function()
+		CNT.total, CNT.last, CNT.dirty = 0, 0, true
+	end)
 	pS:AddLabel("Kill: clicks the slap button for you and sends a 50x slap burst when the power meter appears.")
+
+
+	-- vurus sayaci: ekranda surukle-birak kucuk panel (PC fare / mobil dokunma)
+	do
+		local vp0 = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1280, 720)
+		local hud = new("Frame", { Name = "HitCounter", AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.fromOffset(math.floor(vp0.X / 2), 12), Size = UDim2.fromOffset(150, 46), BackgroundColor3 = T.card, BackgroundTransparency = 0.12, BorderSizePixel = 0, Active = true, ZIndex = 40 }, { corner(14) })
+		local hst = stroke(accent, 1.5, 0.25)
+		hst.Parent = hud
+		onAccent(function(a) hst.Color = a end)
+		label({ Text = "SLAPS", Font = Enum.Font.GothamBold, TextSize = 10, TextColor3 = T.dim, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(12, 5), Size = UDim2.new(1, -24, 0, 12), ZIndex = 41 }).Parent = hud
+		local numL = label({ Text = "0", Font = Enum.Font.GothamBlack, TextSize = 20, TextColor3 = T.text, TextXAlignment = Enum.TextXAlignment.Left, Position = UDim2.fromOffset(12, 17), Size = UDim2.new(0.62, -12, 0, 24), ZIndex = 41 })
+		numL.Parent = hud
+		local lastL = label({ Text = "+0", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = accent, TextXAlignment = Enum.TextXAlignment.Right, Position = UDim2.new(0.5, 0, 0, 22), Size = UDim2.new(0.5, -12, 0, 16), ZIndex = 41 })
+		lastL.Parent = hud
+		onAccent(function(a) lastL.TextColor3 = a end)
+		hud.Parent = gui
+		CNT.hud = hud
+		local dragIn, dragMouse, dStart, pStart = nil, false, nil, nil
+		hud.InputBegan:Connect(function(i)
+			local t = i.UserInputType
+			if t == Enum.UserInputType.Touch then
+				dragIn = i
+			elseif t == Enum.UserInputType.MouseButton1 then
+				dragMouse = true
+			else
+				return
+			end
+			dStart = Vector2.new(i.Position.X, i.Position.Y)
+			pStart = Vector2.new(hud.Position.X.Offset, hud.Position.Y.Offset)
+		end)
+		table.insert(conns, UIS.InputChanged:Connect(function(i)
+			if not dStart then return end
+			if not (i == dragIn or (dragMouse and i.UserInputType == Enum.UserInputType.MouseMovement)) then return end
+			local v = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1280, 720)
+			local d = Vector2.new(i.Position.X, i.Position.Y) - dStart
+			hud.Position = UDim2.fromOffset(math.clamp(pStart.X + d.X, 75, v.X - 75), math.clamp(pStart.Y + d.Y, 0, v.Y - 50))
+		end))
+		table.insert(conns, UIS.InputEnded:Connect(function(i)
+			if i == dragIn then dragIn = nil dStart = nil
+			elseif i.UserInputType == Enum.UserInputType.MouseButton1 and dragMouse then dragMouse = false dStart = nil end
+		end))
+		local lastShown = -1
+		table.insert(conns, RunService.Heartbeat:Connect(function()
+			if not CNT.dirty then return end
+			CNT.dirty = false
+			numL.Text = tostring(CNT.total)
+			lastL.Text = "+" .. CNT.last
+			if CNT.total ~= lastShown then
+				lastShown = CNT.total
+				hst.Transparency = 0
+				tween(hst, 0.35, { Transparency = 0.25 })
+			end
+		end))
+	end
 
 	------------------------------------------------ DIS KAMERA
 	-- Acikken kamerayi her karenin en sonunda biz yonetiriz (oturma / ic kamera fark etmez): her zaman dis kamera + serbest bakis
