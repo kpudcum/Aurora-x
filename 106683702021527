@@ -2545,40 +2545,77 @@ local hCredits = Home:AddSection("CREDITS")
 hCredits:AddCredit("kpudfr", "UI Designer")
 hCredits:AddCredit("3qr311", "Scripter")
 
--- PLAYER SEKME (oyuna ozel: Kill / Auto Dodge / Meter / Slap Button)
+-- PLAYER SEKME (oyuna ozel: Kill / Auto Dodge / Slap Button / Third Person)
 local Player = Window:AddTab("Player", "o")
 do
 	local pS = Player:AddSection("Slap Battle")
-	local S = { Kill = false, Dodge = false, Meter = false, SlapBtn = false }
-	local R = {}                -- remote'lar ve arayuz parcalari (arka planda bulunur)
-	local SLAP_COOLDOWN = 0.2
-	local lastSlap = 0
+	local S = { Kill = false, Dodge = false, SlapBtn = false, Third = true }
+	local R = {}                -- remote'lar ve arayuz parcalari (bulundukca doldurulur)
+	local BURST = 50            -- tek seferde gonderilen tokat sayisi
 	local queueRunning = false
 
-	local function child(parent, name)
+	-- oyun objesi gec gelse bile sonsuza kadar bekler (20 sn'de vazgecmez)
+	local function waitFor(parent, name)
 		if not parent then return nil end
-		local ok, o = pcall(function() return parent:WaitForChild(name, 20) end)
-		return ok and o or nil
+		local o = parent:FindFirstChild(name)
+		while not o do
+			if not parent.Parent or not gui.Parent then return nil end
+			o = parent:WaitForChild(name, 5)
+		end
+		return o
 	end
 
-	-- 10'lu paket tokat
+	-- 50'li paket tokat (5'er 5'er gonderir, her 5'te bir kare bekler)
 	local function burst()
 		local ev = R.slap
 		if not ev then return end
 		task.spawn(function()
-			for _ = 1, 10 do
+			for i = 1, BURST do
 				pcall(function() ev:FireServer(100) end)
-				task.wait()
+				if i % 5 == 0 then task.wait() end
 			end
 		end)
 	end
 
-	-- slapbut gorunurken SlapQueue'yu surekli tetikle
+	-- Rapid Hit: Count kadar vurus (her biri RAPID_VALUE), Speed = saniyede vurus (0 = hepsi bir anda)
+	local RAPID_COUNT, RAPID_VALUE, RAPID_SPEED = 20, 20, 20
+	local rapidBusy = false
+	local function rapidHit()
+		if rapidBusy then return end
+		local ev = R.slap
+		if not ev then
+			Aurora:Notify("Rapid Hit", "Waiting for the game's slap objects...", 3, "warn")
+			return
+		end
+		rapidBusy = true
+		task.spawn(function()
+			pcall(function()
+				local count, speed = RAPID_COUNT, RAPID_SPEED
+				local sent, t0 = 0, os.clock()
+				while sent < count do
+					if not gui.Parent then break end
+					local target = count
+					if speed > 0 then
+						target = math.min(count, math.floor((os.clock() - t0) * speed) + 1)
+					end
+					for _ = sent + 1, target do
+						pcall(function() ev:FireServer(RAPID_VALUE) end)
+					end
+					sent = target
+					if sent < count then task.wait() end
+				end
+			end)
+			rapidBusy = false
+		end)
+	end
+
+	-- Kill veya Slap Button acikken slap butonu gorundukce SlapQueue'yu tetikle
+	local function queueWanted() return S.SlapBtn or S.Kill end
 	local function startQueueLoop()
 		if queueRunning or not R.queue or not R.slapbut then return end
 		queueRunning = true
 		task.spawn(function()
-			while S.SlapBtn and R.slapbut and R.slapbut.Parent and R.slapbut.Visible and gui.Parent do
+			while queueWanted() and R.slapbut and R.slapbut.Parent and R.slapbut.Visible and gui.Parent do
 				pcall(function() R.queue:FireServer() end)
 				task.wait(0.01)
 			end
@@ -2586,98 +2623,310 @@ do
 		end)
 	end
 
-	-- oyuncu arena icinde mi (arena'nin "Chair"'inde oturuyor ya da "floor" parcasinin ustunde)
-	local rayParams = RaycastParams.new()
-	rayParams.FilterType = Enum.RaycastFilterType.Exclude
-	local function inArena(plr, arena)
-		local char = plr.Character
-		if not char then return false end
-		local hum = char:FindFirstChildOfClass("Humanoid")
-		local root = char:FindFirstChild("HumanoidRootPart")
-		if not hum or not root or hum.Health <= 0 then return false end
-		local seat = hum.SeatPart
-		if seat then
-			local sp = seat.Parent
-			if sp and sp.Name == "Chair" and sp:IsDescendantOf(arena) then return true end
-		end
-		rayParams.FilterDescendantsInstances = { char }
-		local hit = workspace:Raycast(root.Position, Vector3.new(0, -6, 0), rayParams)
-		return hit ~= nil and hit.Instance ~= nil and hit.Instance.Name == "floor" and hit.Instance:IsDescendantOf(arena)
+	-- oyunun "ScreenGui"sine baglan (olum/yeniden dogma ile yenilenirse tekrar baglanir)
+	local bound = {}
+	local function bindGui(sg)
+		if bound[sg] then return end
+		bound[sg] = true
+		task.spawn(function()
+			local meter = waitFor(sg, "meter")
+			if not meter then return end
+			R.meter = meter
+			meter:GetPropertyChangedSignal("Visible"):Connect(function()
+				if S.Kill and meter.Visible then burst() end
+			end)
+			if S.Kill and meter.Visible then burst() end
+		end)
+		task.spawn(function()
+			local sb = waitFor(sg, "slapbut")
+			if not sb then return end
+			R.slapbut = sb
+			sb:GetPropertyChangedSignal("Visible"):Connect(function()
+				if queueWanted() and sb.Visible then startQueueLoop() end
+			end)
+			if queueWanted() and sb.Visible then startQueueLoop() end
+		end)
 	end
-
-	-- Kill: ayni arenadaki rakip varsa otomatik tokat
-	table.insert(conns, RunService.Heartbeat:Connect(function()
-		if not S.Kill or not R.slap or not R.arenas then return end
-		local now = os.clock()
-		if now - lastSlap < SLAP_COOLDOWN then return end
-		for _, arena in ipairs(R.arenas:GetChildren()) do
-			if arena:IsA("Model") and arena.Name == "arena" and inArena(lp, arena) then
-				for _, other in ipairs(Players:GetPlayers()) do
-					if other ~= lp and inArena(other, arena) then
-						lastSlap = now
-						burst()
-						return
-					end
-				end
-			end
-		end
-	end))
-
-	-- oyun objelerini arka planda bul, menu beklemeden acilsin
 	task.spawn(function()
-		local ev = child(ReplicatedStorage, "events")
-		R.slap = child(ev, "SendSlap")
-		R.queue = child(ev, "SlapQueue")
-		R.dodge = child(ev, "Dodge")
-		R.prompt = child(ev, "DodgePrompt")
-		R.arenas = child(workspace, "arenas")
-		local sg = child(lp:WaitForChild("PlayerGui"), "ScreenGui")
-		R.meter = child(sg, "meter")
-		R.slapbut = child(sg, "slapbut")
+		local pg = lp:WaitForChild("PlayerGui")
+		local function consider(o)
+			if o:IsA("ScreenGui") and o.Name == "ScreenGui" then bindGui(o) end
+		end
+		for _, o in ipairs(pg:GetChildren()) do consider(o) end
+		pg.ChildAdded:Connect(consider)
+	end)
 
-		-- Auto Dodge: sunucu sinyali gelir gelmez kisa seri
-		if R.prompt and R.dodge then
-			R.prompt.OnClientEvent:Connect(function()
+	-- remote'lar
+	task.spawn(function()
+		local ev = waitFor(ReplicatedStorage, "events")
+		if not ev then return end
+		task.spawn(function() R.slap = waitFor(ev, "SendSlap") end)
+		task.spawn(function() R.queue = waitFor(ev, "SlapQueue") end)
+		task.spawn(function()
+			local dodge = waitFor(ev, "Dodge")
+			local prompt = waitFor(ev, "DodgePrompt")
+			if not dodge or not prompt then return end
+			-- Auto Dodge: sunucu sinyali gelir gelmez kisa seri
+			prompt.OnClientEvent:Connect(function()
 				if not S.Dodge then return end
 				task.spawn(function()
 					for _ = 1, 4 do
-						pcall(function() R.dodge:FireServer(true) end)
+						pcall(function() dodge:FireServer(true) end)
 						task.wait(0.01)
 					end
 				end)
 			end)
-		end
-		-- Meter acilinca 10'lu paket
-		if R.meter then
-			R.meter:GetPropertyChangedSignal("Visible"):Connect(function()
-				if S.Meter and R.meter.Visible then burst() end
-			end)
-		end
-		-- Slap butonu gorununce oto-tikla
-		if R.slapbut then
-			R.slapbut:GetPropertyChangedSignal("Visible"):Connect(function()
-				if S.SlapBtn and R.slapbut.Visible then startQueueLoop() end
-			end)
-		end
+		end)
 	end)
 
-	local tAll, tKill, tDodge, tMeter, tBtn
+	local tAll, tKill, tDodge, tBtn
 	tAll = pS:AddToggle("Enable All", false, function(on)
-		for _, t in ipairs({ tKill, tDodge, tMeter, tBtn }) do
+		for _, t in ipairs({ tKill, tDodge, tBtn }) do
 			if t then t.Set(on) end
 		end
 	end)
-	tKill = pS:AddToggle("Kill (Arena Auto Slap)", false, function(on) S.Kill = on end)
+	tKill = pS:AddToggle("Kill", false, function(on)
+		S.Kill = on
+		if not on then return end
+		if not (R.slap and R.meter) then
+			Aurora:Notify("Kill", "Waiting for the game's slap objects...", 3, "warn")
+		end
+		if R.meter and R.meter.Visible then burst() end
+		startQueueLoop()
+	end)
 	tDodge = pS:AddToggle("Auto Dodge", false, function(on) S.Dodge = on end)
-	tMeter = pS:AddToggle("Meter Burst", false, function(on) S.Meter = on end)
 	tBtn = pS:AddToggle("Slap Button Auto Click", false, function(on)
 		S.SlapBtn = on
 		if on then startQueueLoop() end
 	end)
-	pS:AddLabel("Kill works while you and an opponent are in the same arena (on the floor or in a chair).")
+	pS:AddButton("Rapid Hit", rapidHit)
+	pS:AddSlider("Rapid Hit Count", 0, 1000, 20, function(v) RAPID_COUNT = math.floor(v) end, 1)
+	pS:AddSlider("Rapid Hit Speed (per sec)", 0, 1000, 20, function(v) RAPID_SPEED = math.floor(v) end, 1)
+	pS:AddLabel("Rapid Hit: Count = how many slaps are sent, Speed = slaps per second (0 sends them all at once). You can't trigger it again until it finishes.")
+	pS:AddLabel("Kill: clicks the slap button for you and sends a 50x slap burst when the power meter appears.")
+
+	------------------------------------------------ DIS KAMERA
+	-- Acikken kamerayi her karenin en sonunda biz yonetiriz (oturma / ic kamera fark etmez): her zaman dis kamera + serbest bakis
+	local pC = Player:AddSection("Camera")
+	local CAM = { On = false, Yaw = 0, Pitch = -0.25, Dist = 12, Sens = 1, Touch = {}, MouseLock = false, T = 0, R = false }
+	local camParams = RaycastParams.new()
+	camParams.FilterType = Enum.RaycastFilterType.Exclude
+
+	local function menuOpen() return Window.IsOpen and Window.IsOpen() end
+
+	local function unlockMouse()
+		if CAM.MouseLock then
+			CAM.MouseLock = false
+			pcall(function() UIS.MouseBehavior = Enum.MouseBehavior.Default end)
+		end
+	end
+
+	local function releaseCam()
+		if not CAM.On then return end
+		CAM.On = false
+		unlockMouse()
+		table.clear(CAM.Touch)
+		local cam = workspace.CurrentCamera
+		local char = lp.Character
+		local hum = char and char:FindFirstChildOfClass("Humanoid")
+		if cam then
+			pcall(function()
+				cam.CameraType = Enum.CameraType.Custom
+				if hum then cam.CameraSubject = hum end
+			end)
+		end
+	end
+
+	-- dokunma: butonlarin ve Roblox'un joystick/ziplama alaninin ustundeki dokunuslar kamerayi dondurmesin
+	local function touchOk(pos)
+		local cam = workspace.CurrentCamera
+		local vp = cam and cam.ViewportSize or Vector2.new(800, 400)
+		-- Roblox joystick alani (sol alt) ve ziplama dugmesi (sag alt): bunlara basinca kamera donmesin
+		if pos.X < vp.X * 0.38 and pos.Y > vp.Y * 0.4 then return false end
+		if pos.X > vp.X * 0.72 and pos.Y > vp.Y * 0.55 then return false end
+		local pg = lp:FindFirstChild("PlayerGui")
+		if not pg then return true end
+		local ok, objs = pcall(function() return pg:GetGuiObjectsAtPosition(pos.X, pos.Y) end)
+		if not ok then return true end
+		local area = vp.X * vp.Y
+		for _, o in ipairs(objs) do
+			-- NOT: TouchGui'nin tum ekrani kaplayan ust cercevesi her dokunusta listede gelir, ona bakilmaz
+			if o:IsA("GuiButton") and not o:FindFirstAncestor("TouchGui") then
+				local a = o.AbsoluteSize
+				-- ekranin buyuk kismini kaplayan buton/arka plan kamera dokunusunu engellemez
+				if a.X * a.Y < area * 0.2 then return false end
+			end
+		end
+		return true
+	end
+
+	local function camStep(dt)
+		if not S.Third then return end
+		local cam = workspace.CurrentCamera
+		local char = lp.Character
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		if not cam or not root then return end
+		if not CAM.On then
+			CAM.On = true
+			local _, ry = cam.CFrame:ToOrientation()
+			CAM.Yaw, CAM.Pitch = ry, -0.25
+		end
+		cam.CameraType = Enum.CameraType.Scriptable
+
+		-- fare kilidi: sag tik basili iken imleci sabitler; bakis deltalari asagidaki girdi olaylarindan gelir
+		if UIS.MouseEnabled then
+			if CAM.R and UIS.MouseBehavior ~= Enum.MouseBehavior.LockCenter then
+				if UIS.MouseBehavior ~= Enum.MouseBehavior.LockCurrentPosition then
+					UIS.MouseBehavior = Enum.MouseBehavior.LockCurrentPosition
+					CAM.MouseLock = true
+				end
+			elseif CAM.MouseLock then
+				unlockMouse()
+			end
+		end
+
+		-- klavye: ok tuslari ile saga/sola/yukari/asagi bak
+		if not UIS:GetFocusedTextBox() then
+			local kx = (UIS:IsKeyDown(Enum.KeyCode.Left) and 1 or 0) - (UIS:IsKeyDown(Enum.KeyCode.Right) and 1 or 0)
+			local ky = (UIS:IsKeyDown(Enum.KeyCode.Up) and 1 or 0) - (UIS:IsKeyDown(Enum.KeyCode.Down) and 1 or 0)
+			if kx ~= 0 then CAM.Yaw = CAM.Yaw + kx * 2.4 * dt end
+			if ky ~= 0 then CAM.Pitch = math.clamp(CAM.Pitch + ky * 1.6 * dt, -1.35, 1.35) end
+		end
+
+		local head = char:FindFirstChild("Head")
+		local focus = (head and head.Position or root.Position) + Vector3.new(0, 0.5, 0)
+		local offset = (CFrame.fromOrientation(CAM.Pitch, CAM.Yaw, 0) * CFrame.new(0, 0, CAM.Dist)).Position
+		camParams.FilterDescendantsInstances = { char }
+		local hit = workspace:Raycast(focus, offset, camParams)
+		local pos = focus + offset
+		if hit then pos = hit.Position - offset.Unit * 0.4 end
+		cam.CFrame = CFrame.lookAt(pos, focus)
+		cam.Focus = CFrame.new(focus)
+		CAM.CF, CAM.FocusCF = cam.CFrame, cam.Focus
+
+		-- ic kamerada gizlenen vucut parcalarini tekrar goster
+		CAM.T = CAM.T + dt
+		if CAM.T > 0.25 then
+			CAM.T = 0
+			for _, d in ipairs(char:GetDescendants()) do
+				if d:IsA("BasePart") and d.LocalTransparencyModifier ~= 0 then d.LocalTransparencyModifier = 0 end
+			end
+		end
+	end
+	pcall(function() RunService:UnbindFromRenderStep("AuroraThirdPerson") end)
+	RunService:BindToRenderStep("AuroraThirdPerson", Enum.RenderPriority.Last.Value + 1, camStep)
+	table.insert(conns, RunService.RenderStepped:Connect(function()
+		if S.Third and CAM.On and CAM.CF then
+			local c = workspace.CurrentCamera
+			if c then
+				if c.CameraType ~= Enum.CameraType.Scriptable then c.CameraType = Enum.CameraType.Scriptable end
+				c.CFrame, c.Focus = CAM.CF, CAM.FocusCF
+			end
+		end
+	end))
+
+	-- imlec menunun ustundeyse kamera girdisi alinmaz; menu aciksa bile menunun disinda kamera calisir
+	local GuiSvc = game:GetService("GuiService")
+	local function overMenu(raw)
+		if not menuOpen() then return false end
+		local h = Window.Instance
+		if not h or not h.Visible then return false end
+		local p, sz = h.AbsolutePosition, h.AbsoluteSize
+		return raw.X >= p.X and raw.X <= p.X + sz.X and raw.Y >= p.Y and raw.Y <= p.Y + sz.Y
+	end
+	local function mouseRaw() return UIS:GetMouseLocation() end
+	-- DUZELTME: dokunma konumu (InputObject.Position) Vector3 gelir; eskiden Vector3 + Vector2 hata verip
+	-- mobilde tum dokunma girdisini oldurdugu icin kamera donmuyordu (PC'de fare yolu etkilenmiyordu)
+	local function touchRaw(pos) return Vector2.new(pos.X, pos.Y) + GuiSvc:GetGuiInset() end
+
+	-- mobil: bos ekranda tek parmak surukle = bak, iki parmak = yakinlastir/uzaklastir (pinch)
+	local TOUCHPOS = {}   -- aktif bakis parmaklari: input -> son konum
+	local pinchLast = nil
+	local function touchCount()
+		local n = 0
+		for _ in pairs(CAM.Touch) do n = n + 1 end
+		return n
+	end
+	local function pinchDist()
+		local pts = {}
+		for inp in pairs(CAM.Touch) do
+			local p = TOUCHPOS[inp]
+			if p then table.insert(pts, p) end
+			if #pts == 2 then break end
+		end
+		if #pts == 2 then return (pts[1] - pts[2]).Magnitude end
+		return nil
+	end
+
+	-- PC: sag tik basili tutup fareyi oynat, tekerlek ile yakinlastir | mobil: yukaridaki dokunma hareketleri
+	table.insert(conns, UIS.InputBegan:Connect(function(i)
+		local t = i.UserInputType
+		if t == Enum.UserInputType.MouseButton2 then
+			CAM.R = not overMenu(mouseRaw())
+		elseif t == Enum.UserInputType.Touch then
+			if not CAM.On then return end
+			local ok, blocked = pcall(function() return overMenu(touchRaw(i.Position)) end)
+			if ok and blocked then return end
+			if touchOk(i.Position) then
+				CAM.Touch[i] = true
+				TOUCHPOS[i] = Vector2.new(i.Position.X, i.Position.Y)
+				pinchLast = pinchDist()
+			end
+		end
+	end))
+	table.insert(conns, UIS.InputEnded:Connect(function(i)
+		local t = i.UserInputType
+		if t == Enum.UserInputType.Touch then
+			CAM.Touch[i] = nil
+			TOUCHPOS[i] = nil
+			pinchLast = pinchDist()
+		elseif t == Enum.UserInputType.MouseButton2 then
+			CAM.R = false
+		end
+	end))
+	table.insert(conns, UIS.InputChanged:Connect(function(i)
+		if not CAM.On then return end
+		local t = i.UserInputType
+		if t == Enum.UserInputType.MouseMovement then
+			local gameLock = UIS.MouseBehavior == Enum.MouseBehavior.LockCenter and not menuOpen()
+			if CAM.R or gameLock then
+				CAM.Yaw = CAM.Yaw - i.Delta.X * 0.004
+				CAM.Pitch = math.clamp(CAM.Pitch - i.Delta.Y * 0.004, -1.35, 1.35)
+			end
+		elseif t == Enum.UserInputType.Touch and CAM.Touch[i] then
+			TOUCHPOS[i] = Vector2.new(i.Position.X, i.Position.Y)
+			if touchCount() >= 2 then
+				-- iki parmak: pinch ile uzaklik
+				local d = pinchDist()
+				if d and pinchLast then
+					CAM.Dist = math.clamp(CAM.Dist - (d - pinchLast) * 0.03, 4, 40)
+				end
+				pinchLast = d
+			else
+				-- tek parmak: bak
+				local k = 0.011 * CAM.Sens
+				CAM.Yaw = CAM.Yaw - i.Delta.X * k
+				CAM.Pitch = math.clamp(CAM.Pitch - i.Delta.Y * k, -1.35, 1.35)
+			end
+		elseif t == Enum.UserInputType.MouseWheel then
+			if not overMenu(mouseRaw()) then
+				CAM.Dist = math.clamp(CAM.Dist - i.Position.Z * 2, 4, 40)
+			end
+		end
+	end))
+
+	pC:AddToggle("Third Person (Chair Fix)", true, function(on)
+		S.Third = on
+		if not on then releaseCam() end
+	end)
+	pC:AddSlider("Camera Distance", 4, 40, 12, function(v) CAM.Dist = v end, 1)
+	pC:AddSlider("Touch Look Speed", 0.3, 3, 1, function(v) CAM.Sens = v end, 0.1)
+	pC:AddLabel("Always outside camera, even when the game switches to first person. PC: hold right mouse and move the mouse to look around (works with the menu open, outside the window), arrow keys also turn the camera, scroll to zoom. Mobile: drag on empty screen, pinch with two fingers to zoom.")
 
 	gui.Destroying:Connect(function()
-		S.Kill, S.Dodge, S.Meter, S.SlapBtn = false, false, false, false
+		S.Kill, S.Dodge, S.SlapBtn, S.Third = false, false, false, false
+		pcall(function() RunService:UnbindFromRenderStep("AuroraThirdPerson") end)
+		releaseCam()
 	end)
 end
 
@@ -2711,8 +2960,38 @@ end)
 
 local Settings = Window:AddTab("Settings", "o")
 local s1 = Settings:AddSection("Appearance & Scale")
-s1:AddDropdown("Theme", { "Violet", "Ocean", "Mint", "Rose", "Amber", "Crimson", "Red", "Orange", "Gold", "Lime", "Emerald", "Teal", "Cyan", "Sky", "Blue", "Indigo", "Purple", "Magenta", "Pink", "Silver", "White" }, "Violet", function(o) Aurora:SetAccent(o, true) end)
-s1:AddColorPicker("Custom accent", ACCENTS.Violet, function(c) Aurora:SetAccent(c, true) end)
+-- Rainbow Accent aciksa tema rengi secilemez (renk surekli degistigi icin): uyari ver, secimi geri al
+local lastTheme, lastCustom, lastWarn, revertingTheme, revertingCustom = "Violet", ACCENTS.Violet, 0, false, false
+local function rainbowBlocked()
+	if not isRainbowAccent then return false end
+	if os.clock() - lastWarn > 2 then
+		lastWarn = os.clock()
+		Aurora:Notify("Rainbow Accent", "You can't pick a theme color while Rainbow Accent is on. Turn it off first.", 3, "warn")
+	end
+	return true
+end
+local ddTheme, cpAccent
+ddTheme = s1:AddDropdown("Theme", { "Violet", "Ocean", "Mint", "Rose", "Amber", "Crimson", "Red", "Orange", "Gold", "Lime", "Emerald", "Teal", "Cyan", "Sky", "Blue", "Indigo", "Purple", "Magenta", "Pink", "Silver", "White" }, "Violet", function(o)
+	if revertingTheme then revertingTheme = false return end
+	if rainbowBlocked() then
+		revertingTheme = true
+		ddTheme.Set(lastTheme)
+		return
+	end
+	lastTheme = o
+	Aurora:SetAccent(o, true)
+end)
+cpAccent = s1:AddColorPicker("Custom accent", ACCENTS.Violet, function(c)
+	if revertingCustom then return end
+	if rainbowBlocked() then
+		revertingCustom = true
+		pcall(cpAccent.Set, lastCustom)
+		revertingCustom = false
+		return
+	end
+	lastCustom = c
+	Aurora:SetAccent(c, true)
+end)
 s1:AddToggle("Rainbow Accent", false, function(on)
 	isRainbowAccent = on
 	if not on then
@@ -2825,9 +3104,16 @@ do
 		GoldBlack = { "Gold", "Black" }, NeonPurple = { "Magenta", "Purple" }, Forest = { "Emerald", "Forest" }, Sunset = { "Orange", "Sunset" },
 		Ice = { "Sky", "Slate" }, Royal = { "Indigo", "Midnight" }, Coffee = { "Amber", "Coffee" }, Snow = { "Blue", "Light" },
 	}
-	sPack:AddDropdown("Theme Pack (color + background)", { "Blood", "Ocean", "Sakura", "Matrix", "GoldBlack", "NeonPurple", "Forest", "Sunset", "Ice", "Royal", "Coffee", "Snow" }, "Sec", function(o)
+	local lastPack, revertingPack, ddPack = nil, false, nil
+	ddPack = sPack:AddDropdown("Theme Pack (color + background)", { "Blood", "Ocean", "Sakura", "Matrix", "GoldBlack", "NeonPurple", "Forest", "Sunset", "Ice", "Royal", "Coffee", "Snow" }, "Sec", function(o)
+		if revertingPack then revertingPack = false return end
 		local p = PACKS[o]
 		if not p then return end
+		if rainbowBlocked() then
+			if lastPack then revertingPack = true ddPack.Set(lastPack) end
+			return
+		end
+		lastPack = o
 		Aurora:SetAccent(p[1], true)
 		applyBG(p[2])
 	end)
