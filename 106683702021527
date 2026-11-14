@@ -267,7 +267,6 @@ gui.Parent = host
 
 local conns = {}
 gui.Destroying:Connect(function() for _, c in ipairs(conns) do c:Disconnect() end end)
--- panic icin oyunun orijinal degerleri
 Aurora.Orig = { Gravity = workspace.Gravity, FOV = workspace.CurrentCamera and workspace.CurrentCamera.FieldOfView or 70 }
 
 ------------------------------------------------------------------ BILDIRIMLER
@@ -337,6 +336,7 @@ local CTL = { list = {}, map = {} }
 local function regCtl(sid, lbl, kind, get, set)
 	local k0 = sid .. "/" .. tostring(lbl)
 	-- tema kontrolleri ayri yakalanir, config bolumunun kendisi kaydedilmez
+	if sid == "Player/Slap Battle" and tostring(lbl) == "Enable All" then return end
 	if sid == "Settings/Config" or sid == "Settings/Theme Packs & Backgrounds" or sid == "Settings/Theme Backgrounds"
 		or k0 == "Settings/Appearance & Scale/Theme" or k0 == "Settings/Appearance & Scale/Custom accent" then
 		return
@@ -882,26 +882,45 @@ function Aurora:CreateWindow(titleText, subtitle)
 				content.ClipsDescendants = true
 				arrow.Rotation = -90
 			end
+			if collapsed then content.Visible = false end
 			head.MouseButton1Click:Connect(function()
 				isOpen = not isOpen
 				anim = anim + 1
 				local my = anim
-				tween(arrow, 0.28, { Rotation = isOpen and 0 or -90 })
+				tween(arrow, 0.22, { Rotation = isOpen and 0 or -90 }, Enum.EasingStyle.Quad)
 				content.ClipsDescendants = true
 				if isOpen then
+					-- ilk render/yerlesim takilmasi animasyonun ortasina binmesin: once gorunur yap, bir kare bekle, sonra olc
 					content.AutomaticSize = Enum.AutomaticSize.None
-					tween(content, 0.32, { Size = UDim2.new(1, 0, 0, fullH()) }, Enum.EasingStyle.Quint)
-					task.delay(0.36, function()
-						if my == anim and isOpen then
+					content.Size = UDim2.new(1, 0, 0, 0)
+					content.Visible = true
+					task.spawn(function()
+						RunService.Heartbeat:Wait()
+						if my ~= anim or not isOpen then return end
+						local h = fullH()
+						if h <= 12 then
 							content.AutomaticSize = Enum.AutomaticSize.Y
 							content.Size = UDim2.new(1, 0, 0, 0)
 							content.ClipsDescendants = false
+							return
 						end
+						tween(content, 0.26, { Size = UDim2.new(1, 0, 0, h) }, Enum.EasingStyle.Quad)
+						task.delay(0.3, function()
+							if my == anim and isOpen then
+								content.AutomaticSize = Enum.AutomaticSize.Y
+								content.Size = UDim2.new(1, 0, 0, 0)
+								content.ClipsDescendants = false
+							end
+						end)
 					end)
 				else
+					local h = content.AbsoluteSize.Y
 					content.AutomaticSize = Enum.AutomaticSize.None
-					content.Size = UDim2.new(1, 0, 0, fullH())
-					tween(content, 0.32, { Size = UDim2.new(1, 0, 0, 0) }, Enum.EasingStyle.Quint)
+					content.Size = UDim2.new(1, 0, 0, h)
+					tween(content, 0.22, { Size = UDim2.new(1, 0, 0, 0) }, Enum.EasingStyle.Quad)
+					task.delay(0.26, function()
+						if my == anim and not isOpen then content.Visible = false end
+					end)
 				end
 			end)
 
@@ -2701,13 +2720,27 @@ do
 	end)
 
 	local tAll, tKill, tDodge, tBtn, tRapid
+	-- Enable All: hepsi acilinca kendiliginden acilir, biri kapaninca kendiliginden kapanir
+	local syncing, bulkT = false, 0
+	local function syncAll()
+		if os.clock() - bulkT < 0.35 then return end
+		local all = S.Kill and S.Dodge and S.SlapBtn and S.Rapid and true or false
+		if tAll and tAll.Get() ~= all then
+			syncing = true
+			tAll.Set(all)
+		end
+	end
 	tAll = pS:AddToggle("Enable All", false, function(on)
+		if syncing then syncing = false return end
+		bulkT = os.clock()
+		task.delay(0.4, syncAll)
 		for _, t in ipairs({ tKill, tDodge, tBtn, tRapid }) do
 			if t then t.Set(on) end
 		end
 	end)
 	tKill = pS:AddToggle("Kill", false, function(on)
 		S.Kill = on
+		syncAll()
 		if not on then return end
 		if not (R.slap and R.meter) then
 			Aurora:Notify("Kill", "Waiting for the game's slap objects...", 3, "warn")
@@ -2715,13 +2748,18 @@ do
 		if R.meter and R.meter.Visible then burst() end
 		startQueueLoop()
 	end)
-	tDodge = pS:AddToggle("Auto Dodge", false, function(on) S.Dodge = on end)
+	tDodge = pS:AddToggle("Auto Dodge", false, function(on)
+		S.Dodge = on
+		syncAll()
+	end)
 	tBtn = pS:AddToggle("Slap Button Auto Click", false, function(on)
 		S.SlapBtn = on
+		syncAll()
 		if on then startQueueLoop() end
 	end)
 	tRapid = pS:AddToggle("Rapid Hit", false, function(on)
 		S.Rapid = on
+		syncAll()
 		if not on then return end
 		if not (R.slap and R.meter) then
 			Aurora:Notify("Rapid Hit", "Waiting for the game's slap objects...", 3, "warn")
@@ -3095,78 +3133,6 @@ s1:AddButton("Reset Theme Colors", function()
 	Aurora:ResetTheme()
 	Aurora:Notify("Reset", "All theme colors and backgrounds were restored to defaults.", 3, "success")
 end)
-
-do
-	local pnS = Settings:AddSection("Panic")
-	local PN = { Key = { kind = "key", value = Enum.KeyCode.End }, Busy = false }
-	local skipUntil = 0
-
-	-- panic: tum ozellikleri kapatir, oyunun degerlerini geri yazar, arayuzu ve butun efektleri tamamen siler (sessiz, bildirim yok)
-	local function panic()
-		if PN.Busy then return end
-		PN.Busy = true
-		pcall(function()
-			enforcedClockTime, enforcedAmbient = nil, nil
-		end)
-		-- gui yok edilince tum Destroying dinleyicileri calisir: gokyuzu efektleri ve Player ozellikleri kapanir
-		pcall(function() gui:Destroy() end)
-		pcall(function()
-			for _, o in ipairs(host:GetChildren()) do
-				if string.sub(o.Name, 1, 6) == "Aurora" then o:Destroy() end
-			end
-		end)
-		warn("[Aurora] panic: script unloaded")
-	end
-
-	pnS:AddButton("PANIC - Unload Script", panic)
-	if not AIM_MOBILE then
-		pnS:AddKeybind("Panic Key", PN.Key, function(b)
-			PN.Key = b
-			skipUntil = os.clock() + 0.5 -- tusu atarken basilan tus panic'i tetiklemesin
-		end)
-		table.insert(conns, UIS.InputBegan:Connect(function(i)
-			if os.clock() < skipUntil or UIS:GetFocusedTextBox() then return end
-			if matchesKey(i, PN.Key) then panic() end
-		end))
-	end
-
-	-- istege bagli yuzen panic butonu (mobil icin): dokun = panic, surukle = tasi
-	local pb = new("TextButton", {
-		Name = "PanicButton", Text = "", AutoButtonColor = false, AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.fromOffset(40, 40),
-		BackgroundColor3 = T.card, BackgroundTransparency = 0.1, BorderSizePixel = 0, Visible = false, ZIndex = 45,
-	}, { corner(20) })
-	local pbs = stroke(T.err, 2, 0.1)
-	pbs.Parent = pb
-	label({ Text = "!", Font = Enum.Font.GothamBlack, TextSize = 22, TextColor3 = T.err, TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.fromScale(1, 1), ZIndex = 46 }).Parent = pb
-	local vp0 = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1280, 720)
-	pb.Position = UDim2.fromOffset(vp0.X - 40, vp0.Y * 0.3)
-	pb.Parent = gui
-	do
-		local pressed, dragged, startIn, startPos, mv = false, false, nil, Vector2.new(0, 0), nil
-		pb.InputBegan:Connect(function(i)
-			if i.UserInputType ~= Enum.UserInputType.MouseButton1 and i.UserInputType ~= Enum.UserInputType.Touch then return end
-			pressed, dragged, startIn, mv = true, false, i.Position, i
-			startPos = Vector2.new(pb.Position.X.Offset, pb.Position.Y.Offset)
-			i.Changed:Connect(function()
-				if i.UserInputState == Enum.UserInputState.End and pressed then
-					pressed = false
-					if not dragged and os.clock() >= (Aurora.NoClose or 0) then panic() end
-				end
-			end)
-		end)
-		table.insert(conns, UIS.InputChanged:Connect(function(i)
-			if not pressed or i ~= mv then return end
-			local d = i.Position - startIn
-			if not dragged and d.Magnitude >= 10 then dragged = true end
-			if dragged then
-				local v = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1280, 720)
-				pb.Position = UDim2.fromOffset(math.clamp(startPos.X + d.X, 20, v.X - 20), math.clamp(startPos.Y + d.Y, 20, v.Y - 20))
-			end
-		end))
-	end
-	pnS:AddToggle("Floating Panic Button", false, function(on) pb.Visible = on end)
-	pnS:AddLabel("Panic removes the UI, turns every feature off and restores the game's values. Run the script again to bring it back.")
-end
 
 local sPack = Settings:AddSection("Theme Packs & Backgrounds")
 do
