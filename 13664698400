@@ -2634,7 +2634,7 @@ do
 		ShowButton = IS_MOBILE, ButtonSize = 72,
 		Auto = false, AutoEvery = 1.5,
 		Busy = false, Last = 0, Done = 0, TM = nil,
-		Mode = "Goal Shot", Curve = 30, Arc = false, Boost = 1.6, ShotCurve = 0,
+		Mode = "Goal Shot", AssistTarget = "Camera Aim", Curve = 30, Arc = false, Boost = 1.6, ShotCurve = 0,
 	}
 	local FX = {
 		AutoClaim = false, ClaimR = 8, AutoSteal = false, StealR = 14, Aggressive = false,
@@ -2643,6 +2643,7 @@ do
 		EspBall = false, EspPlayers = false, EspLabels = false, Hud = false, Traj = false,
 		FovLock = false, Fov = 90, CelebSpam = false, AfkConn = nil,
 	}
+	local STICK = { On = false, Dist = 3 }
 	local AUTO = { On = false, Radius = 15, Hold = 0.35, Since = 0, Allow = 0, Own = nil, BusyUntil = 0, Got = false, Armed = true, Anchor = nil, GoalAt = 0 }
 	local MAG = { On = false, Radius = 8, Speed = 8, Force = 0, Susp = 0, Claim = 0, BP = nil, Last = nil }
 	local OWN = { On = false, Interval = 0.03, Acc = 0, Pos = "To Player", Dist = 15, Height = 0 }
@@ -2907,6 +2908,7 @@ do
 			dest = root.Position + root.CFrame.LookVector * OWN.Dist + Vector3.new(0, OWN.Height, 0)
 		end
 		if not dest then return end
+		OWN.PlacedAt = os.clock() -- Stick To Ball ile birlikte calisirken tutarli konum icin
 		for _, b in ipairs(liveBalls()) do
 			if b.Parent then
 				pcall(function()
@@ -2927,6 +2929,42 @@ do
 	end
 
 	------------------------------------------------ sut hesabi (mod + falso)
+	-- Assist Pass: takim arkadasina (ayni taraf) sut: Camera Aim = kameranin baktigi yone en yakin, Closest = en yakin
+	local function sideOf(p)
+		local tn = p.Team and p.Team.Name or ""
+		if string.find(tn, "Home", 1, true) then return "Home" end
+		if string.find(tn, "Away", 1, true) then return "Away" end
+		return nil
+	end
+	local function pickTeammate(root)
+		local mySide = sideOf(lp)
+		if not mySide then return nil end
+		local cam = WS.CurrentCamera
+		local look = cam and cam.CFrame.LookVector or root.CFrame.LookVector
+		local best, bestScore, bestPart
+		for _, p in ipairs(Players:GetPlayers()) do
+			if p ~= lp and sideOf(p) == mySide and p.Character then
+				local hrp = p.Character:FindFirstChild("HumanoidRootPart")
+				local hum = p.Character:FindFirstChildOfClass("Humanoid")
+				if hrp and hum and hum.Health > 0 then
+					local diff = hrp.Position - root.Position
+					local d = diff.Magnitude
+					if d > 4 then
+						local score
+						if GK.AssistTarget == "Closest" then
+							score = d
+						else
+							local dot = diff.Unit:Dot(Vector3.new(look.X, look.Y, look.Z).Unit)
+							if dot > 0.35 then score = -dot * 1000 + d * 0.5 end -- kameraya en yakin yon, esitlikte yakin olan
+						end
+						if score and (not bestScore or score < bestScore) then best, bestScore, bestPart = p, score, hrp end
+					end
+				end
+			end
+		end
+		return bestPart
+	end
+
 	-- Falso: yanal ivme (stud/sn^2) = Curve*1.2. Goal Shot'ta nisan, falsonun itecegi kadar ters tarafa kaydirilir; top kaleye girerek doner.
 	local function calcShot(mode, bpos, root, target)
 		local upV = Vector3.new(0, 1, 0)
@@ -2963,6 +3001,24 @@ do
 			local dir = gp and Vector3.new(bpos.X - gp.X, 0, bpos.Z - gp.Z) or Vector3.zero
 			if dir.Magnitude < 0.1 then dir = Vector3.new(0, 0, 1) end
 			return dir.Unit * GK.Power + Vector3.new(0, 25 * GK.Power / 180, 0), 0, 0.8
+		end
+		if mode == "Assist Pass" then
+			local tp = pickTeammate(root)
+			if not tp then
+				if os.clock() - (GK.AssistWarn or 0) > 2 then
+					GK.AssistWarn = os.clock()
+					Aurora:Notify("Ball", "No teammate found in that direction", 2, "warn")
+				end
+				return nil
+			end
+			local feet = tp.Position - Vector3.new(0, 1.5, 0)
+			local dist = (feet - bpos).Magnitude
+			local speed = math.clamp(dist * 1.4 + 50, 70, math.max(70, GK.Power))
+			local tv = tp.AssemblyLinearVelocity
+			local lead = feet + Vector3.new(tv.X, 0, tv.Z) * (dist / speed) * 0.8 -- kosan arkadasin onune
+			local d2 = lead - bpos
+			if d2.Magnitude < 0.5 then return nil end
+			return d2.Unit * speed + Vector3.new(0, math.clamp(dist * 0.12, 2, 28), 0), 0, dist / speed
 		end
 		-- kamera yonune sut (Power Shot / Long Ball / Volley)
 		local cam = WS.CurrentCamera
@@ -3169,8 +3225,47 @@ do
 		if c.Name == "Goal" then AUTO.GoalAt = os.clock() end
 	end))
 
+	-- Stick To Ball: acikken karakter her karede topa isinlanir, topu hic birakmaz; kapaninca birakir
+	function STICK.step()
+		if not STICK.On then return end
+		local char = lp.Character
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		if not root then return end
+		local best, bd, bpart = nil, math.huge, nil
+		for _, b in ipairs(liveBalls()) do
+			local p = ballPart(b)
+			if p then
+				local d = (p.Position - root.Position).Magnitude
+				if d < bd then best, bd, bpart = b, d, p end
+			end
+		end
+		if not bpart then return end
+		local lk = root.CFrame.LookVector
+		local flat = Vector3.new(lk.X, 0, lk.Z)
+		if flat.Magnitude < 0.01 then flat = Vector3.new(0, 0, -1) end
+		flat = flat.Unit
+		-- Own All Balls + Ball Position aciksa top her karede senden Ball Distance kadar onde tutulur:
+		-- ikisi kovalamasin diye karakter topun tam o kadar gerisinde, kendi yuksekliginde durur (konum degismez, top elde kalir)
+		if OWN.On and OWN.Pos == "To Player" and os.clock() - (OWN.PlacedAt or 0) < 0.15 then
+			local lookCF0 = root.CFrame - root.CFrame.Position
+			local back = bpart.Position - lk * OWN.Dist
+			root.AssemblyLinearVelocity = Vector3.zero
+			root.AssemblyAngularVelocity = Vector3.zero
+			root.CFrame = CFrame.new(back.X, root.Position.Y, back.Z) * lookCF0
+			return
+		end
+		-- topun arkasinda, ayaklar topun tabaninda (zemine gomulmeden): root = top tabani + ayak-root mesafesi
+		local px = bpart.Position - flat * (bpart.Size.X / 2 + STICK.Dist)
+		local py = bpart.Position.Y - bpart.Size.Y / 2 + standOffset(char, root)
+		local lookCF = root.CFrame - root.CFrame.Position
+		root.AssemblyLinearVelocity = Vector3.zero
+		root.AssemblyAngularVelocity = Vector3.zero
+		root.CFrame = CFrame.new(px.X, py, px.Z) * lookCF
+	end
+
 	function MAG.step()
 		local now = os.clock()
+		-- Stick To Ball acikken de miknatis calisir (karakter topun arkasinda, miknatis topu onunde tutar)
 		-- Own All Balls konumlandiriyorsa (Ball Position != Off) topu tek sistem yonetir: miknatis BodyPosition'i birakilir, iki sistem cekismez
 		if OWN.On and OWN.Pos ~= "Off" then
 			magnetOff()
@@ -3197,12 +3292,21 @@ do
 		local isMine = OWN.On or (not (own and own:IsA("ObjectValue"))) or own.Value == lp or own.Value == nil
 		if not isMine then
 			if bd <= MAG.Radius and now >= MAG.Claim then
+				-- saha oyuncularinda sunucu farkli bicimde bekleyebilir: istegi sirayla 3 bicimde dene
 				MAG.Claim = now + 0.2
-				local co = remote("ChangeOwner")
-				if co then pcall(function() co:FireServer(best) end) end
+				MAG.ClaimN = (MAG.ClaimN or 0) + 1
+				local co, cv = remote("ChangeOwner"), remote("ChangeValue")
+				local k = MAG.ClaimN % 3
+				if co and k == 0 then pcall(function() co:FireServer(best) end)
+				elseif co and k == 1 then pcall(function() co:FireServer(best, "Tackle") end)
+				elseif cv then pcall(function() cv:FireServer(best) end) end
 			end
-			magnetOff()
-			return
+			-- Owner degeri gec guncellense / saha oyuncusunda sahiplik yakinlikla gecse bile yaricap icindeki topu cek
+			if bd > MAG.Radius then
+				magnetOff()
+				MAG.Last = nil
+				return
+			end
 		end
 		-- top aniden cok uzaga tasindiysa (gol / yeni mac) eski kuvveti birak, yeni konumdan devam et
 		if MAG.Last and (MAG.Last - bpart.Position).Magnitude > 45 then
@@ -3303,6 +3407,7 @@ do
 			safeAcc = 0
 		end
 		pcall(AUTO.step, os.clock())
+		pcall(STICK.step)
 		pcall(MAG.step)
 		-- Top client tarafinda saydamlastirilirsa gorunurlugunu geri al; server tarafindaki Transparency degerine dokunma.
 		if OWN.On then
@@ -3460,7 +3565,7 @@ do
 		pk:AddLabel("Click anywhere or press your Kick Key (every press kicks, even back to back). With Continuous Kick on, hold the left mouse button or the Kick Key to keep kicking at the goal.")
 	end
 
-	pk:AddDropdown("Main Shot (click / tap / key / button)", { "Goal Shot", "Power Shot", "Long Ball", "Volley" }, "Goal Shot", function(o) GK.Mode = o end)
+	pk:AddDropdown("Main Shot (click / tap / key / button)", { "Goal Shot", "Power Shot", "Long Ball", "Volley", "Assist Pass" }, "Goal Shot", function(o) GK.Mode = o end)
 	pk:AddSlider("Goal Curve", -100, 100, GK.Curve, function(v) GK.Curve = v end, 5)
 	pk:AddToggle("Arc Aim (gravity compensation)", false, function(on) GK.Arc = on end)
 	pk:AddLabel("Goal Curve bends the shot while the aim is pre-corrected so the ball curves into the goal. 0 = straight. Positive curves right, negative left.")
@@ -3487,14 +3592,17 @@ do
 	ps:AddButton("Power Shot", function() kick(true, "Power Shot") end)
 	ps:AddButton("Long Ball", function() kick(true, "Long Ball") end)
 	ps:AddButton("Volley", function() kick(true, "Volley") end)
+	ps:AddButton("Assist Pass (to teammate)", function() kick(true, "Assist Pass") end)
+	ps:AddDropdown("Assist Target", { "Camera Aim", "Closest" }, "Camera Aim", function(o) GK.AssistTarget = o end)
 	ps:AddSlider("Power Shot Boost", 1, 3, GK.Boost, function(v) GK.Boost = v end, 0.1)
 	ps:AddSlider("Shot Curve", -100, 100, GK.ShotCurve, function(v) GK.ShotCurve = v end, 5)
 	if not IS_MOBILE then
 		bindKey(ps, "Power Shot Key", function() kick(true, "Power Shot") end)
 		bindKey(ps, "Long Ball Key", function() kick(true, "Long Ball") end)
 		bindKey(ps, "Volley Key", function() kick(true, "Volley") end)
+		bindKey(ps, "Assist Pass Key", function() kick(true, "Assist Pass") end)
 	end
-	ps:AddLabel("These shots go where your camera looks. Power Shot speed = Kick Power x Power Shot Boost. Shot Curve bends them (0 = straight).")
+	ps:AddLabel("Assist Pass sends the ball to a teammate (with a lead for runners): Camera Aim picks the teammate nearest to where your camera looks, Closest picks the nearest one. These shots go where your camera looks. Power Shot speed = Kick Power x Power Shot Boost. Shot Curve bends them (0 = straight).")
 
 	local pm = BallTab:AddSection("Ball Magnet")
 	local magToggle = pm:AddToggle("Ball Magnet", false, function(on)
@@ -3662,6 +3770,18 @@ do
 	end)
 	po:AddLabel("Ball Position moves every TPS ball to the goal or next to you every frame while Own All Balls is on, so the ball stays with you even when it was far away. Place Balls Now does it once.")
 	po:AddLabel("Keeps firing ChangeOwner and ChangeValue for every TPS ball so the ball stays yours. Lower interval = more often.")
+
+	local stickToggle = po:AddToggle("Stick To Ball (always teleport to the ball)", false, function(on)
+		STICK.On = on
+		SINK.Until = os.clock() + 6
+	end)
+	po:AddSlider("Stick Distance Behind Ball", 1, 8, STICK.Dist, function(v) STICK.Dist = math.clamp(v, 1, 8) end, 0.5)
+	if not IS_MOBILE then
+		bindKey(po, "Stick To Ball Key", function()
+			if stickToggle and stickToggle.Get and stickToggle.Set then stickToggle.Set(not stickToggle.Get()) end
+		end)
+	end
+	po:AddLabel("While on, your character is teleported to the ball every frame and never lets go of it (it follows the ball even after a shot). Own All Balls and Auto Own keep working with it; with Ball Position = To Player the ball stays Ball Distance in front of you. The Ball Magnet keeps working with it too (it only yields to Own All Balls while Ball Position is not Off, since that already holds the ball). Turn it off to stop.")
 
 	-- ekrandaki buton sadece mobilde (PC'de hic cikmaz)
 	if IS_MOBILE then
@@ -4495,6 +4615,7 @@ do
 			{ "PWR", "Power Shot", function() kick(true, "Power Shot") end },
 			{ "LNG", "Long Ball", function() kick(true, "Long Ball") end },
 			{ "VOL", "Volley", function() kick(true, "Volley") end },
+			{ "AST", "Assist Pass", function() kick(true, "Assist Pass") end },
 			{ "CLR", "Clear Ball", function() kick(true, "Clear Ball") end },
 			{ "MAG", "Magnet", function() if magToggle then magToggle.Set(not magToggle.Get()) end end, function() return MAG.On end },
 			{ "PULL", "Pull Ball", function() MAG.Force = os.clock() + 2 end },
@@ -4506,6 +4627,7 @@ do
 			{ "DIVE", "GK Dive", doDive },
 			{ "SPD", "Speed Boost", function() speedT.Set(not speedT.Get()) end, function() return FX.Speed end },
 			{ "FLY", "Fly", function() flyT.Set(not flyT.Get()) end, function() return FX.Fly end },
+			{ "STK", "Stick To Ball", function() if stickToggle then stickToggle.Set(not stickToggle.Get()) end end, function() return STICK.On end },
 			{ "NCL", "Noclip", function() noclipT.Set(not noclipT.Get()) end, function() return FX.Noclip end },
 		}
 		pb:AddSlider("Mobile Button Size", 32, 70, MB.size, function(v)
@@ -4526,7 +4648,7 @@ do
 				e.btn.Position = UDim2.fromOffset(x, y)
 			end
 		end)
-		pb:AddLabel("Turn on the buttons you want. Tap a button to use it, drag it to move it. Toggle-type buttons (MAG, OWN, AUTO, SPD, FLY, NCL) glow when on.")
+		pb:AddLabel("Turn on the buttons you want. Tap a button to use it, drag it to move it. Toggle-type buttons (MAG, OWN, AUTO, STK, SPD, FLY, NCL) glow when on.")
 	end
 	end
 	buildExtras()
@@ -4704,17 +4826,36 @@ do
 end
 
 local sThemeBg = Settings:AddSection("Theme Backgrounds", true)
-sThemeBg:AddColorPicker("Background 0 (Top)", T.bg0, function(c) Aurora:UpdateThemeColor("bg0", c) end)
-sThemeBg:AddColorPicker("Background 1 (Bottom)", T.bg1, function(c) Aurora:UpdateThemeColor("bg1", c) end)
-sThemeBg:AddColorPicker("Sidebar Color", T.side, function(c) Aurora:UpdateThemeColor("side", c) end)
-sThemeBg:AddColorPicker("Card Color", T.card, function(c) Aurora:UpdateThemeColor("card", c) end)
-sThemeBg:AddColorPicker("Row Color", T.row, function(c) Aurora:UpdateThemeColor("row", c) end)
-sThemeBg:AddColorPicker("Row 2 Color", T.row2, function(c) Aurora:UpdateThemeColor("row2", c) end)
-sThemeBg:AddColorPicker("Line / Border Color", T.line, function(c) Aurora:UpdateThemeColor("line", c) end)
-sThemeBg:AddColorPicker("Text Color", T.text, function(c) Aurora:UpdateThemeColor("text", c) end)
-sThemeBg:AddColorPicker("Sub Text Color", T.sub, function(c) Aurora:UpdateThemeColor("sub", c) end)
-sThemeBg:AddColorPicker("Dim Text Color", T.dim, function(c) Aurora:UpdateThemeColor("dim", c) end)
-sThemeBg:AddColorPicker("Scrollbar Color", T.scroll, function(c) Aurora:UpdateThemeColor("scroll", c) end)
+local TP, tpBusy = {}, false
+local function themePicker(title, key)
+	TP[key] = sThemeBg:AddColorPicker(title, T[key], function(c) Aurora:UpdateThemeColor(key, c) end)
+end
+themePicker("Background 0 (Top)", "bg0")
+themePicker("Background 1 (Bottom)", "bg1")
+themePicker("Sidebar Color", "side")
+themePicker("Card Color", "card")
+themePicker("Row Color", "row")
+themePicker("Row 2 Color", "row2")
+themePicker("Line / Border Color", "line")
+themePicker("Text Color", "text")
+themePicker("Sub Text Color", "sub")
+themePicker("Dim Text Color", "dim")
+themePicker("Scrollbar Color", "scroll")
+-- tema baska yerden degisince (config / theme pack / preset / reset) secici renkleri de guncel temayi gostersin
+onThemeChange(function(k, c)
+	local p = TP[k]
+	if p and not tpBusy then
+		tpBusy = true
+		pcall(p.Set, c)
+		tpBusy = false
+	end
+end)
+-- baslangicta zaten yuklenmis tema varsa hemen esitle
+for k, p in pairs(TP) do
+	tpBusy = true
+	pcall(p.Set, T[k])
+	tpBusy = false
+end
 
 local sCfg = Settings:AddSection("Config")
 do
