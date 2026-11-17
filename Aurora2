@@ -1,1 +1,1426 @@
+--[[
+	╔═══════════════════════════════════════════════╗
+	║   AURORA OMEGA UI  v2.0  -  MOBILE EDITION     ║
+	╚═══════════════════════════════════════════════╝
 
+	v2 YENILIKLER
+	  MOBIL:  kompakt duzen (sadece ikonlu yan menu), buyuk dokunma alanlari,
+	          slider +/- butonlari, sol-ortada surukelenebilir launcher (joystick'e carpmaz),
+	          bildirimler ustte ortada, ekrana gore otomatik olcek, donunce yeniden sigdirma
+	  YENI:   sayfa ici arama, 4 tema (Midnight / AMOLED / Ocean / Light), canli HUD (FPS/Ping),
+	          Divider, Paragraph, Progress, MultiDropdown, Server sekmesi, Tools sekmesi
+	  ESKI:   splash, animasyonlu cerceve, parcaciklar, toggle/slider/dropdown/keybind/
+	          textbox/colorpicker, bildirimler, config kaydet/yukle, rainbow
+]]
+
+if getgenv then
+	pcall(function()
+		if getgenv().OmegaUI then getgenv().OmegaUI:Unload() end
+	end)
+end
+
+local Players = game:GetService("Players")
+local UIS = game:GetService("UserInputService")
+local TS = game:GetService("TweenService")
+local RS = game:GetService("RunService")
+local Lighting = game:GetService("Lighting")
+local HttpService = game:GetService("HttpService")
+local Stats = game:GetService("Stats")
+local GuiService = game:GetService("GuiService")
+local TeleportService = game:GetService("TeleportService")
+local lp = Players.LocalPlayer
+
+local Omega = { Flags = {}, Version = "2.0", _setters = {}, Stats = { fps = 0, ping = 0 } }
+
+------------------------------------------------------------------ CIHAZ ALGILAMA
+local function viewport()
+	local c = workspace.CurrentCamera
+	return c and c.ViewportSize or Vector2.new(1280, 720)
+end
+local IS_MOBILE = UIS.TouchEnabled and not UIS.MouseEnabled
+local COMPACT = IS_MOBILE or viewport().X < 760
+local RH = IS_MOBILE and 44 or 38 -- satir yuksekligi (dokunma icin buyuk)
+
+------------------------------------------------------------------ TEMA
+local function rgb(r, g, b) return Color3.fromRGB(r, g, b) end
+local WHITE = Color3.new(1, 1, 1)
+
+local THEMES = {
+	Midnight = { bg0 = rgb(20, 21, 34), bg1 = rgb(8, 9, 15), card = rgb(24, 27, 41), row = rgb(30, 34, 51), row2 = rgb(42, 47, 68), line = rgb(54, 60, 86), text = rgb(241, 244, 253), sub = rgb(163, 171, 198), dim = rgb(106, 114, 142) },
+	AMOLED = { bg0 = rgb(6, 6, 8), bg1 = rgb(0, 0, 0), card = rgb(13, 13, 17), row = rgb(19, 19, 25), row2 = rgb(30, 30, 40), line = rgb(42, 42, 56), text = rgb(245, 245, 250), sub = rgb(150, 150, 170), dim = rgb(95, 95, 115) },
+	Ocean = { bg0 = rgb(12, 26, 42), bg1 = rgb(5, 12, 22), card = rgb(16, 34, 54), row = rgb(21, 44, 68), row2 = rgb(30, 60, 90), line = rgb(42, 78, 112), text = rgb(236, 246, 255), sub = rgb(150, 182, 210), dim = rgb(96, 130, 160) },
+	Light = { bg0 = rgb(244, 246, 252), bg1 = rgb(226, 230, 242), card = rgb(255, 255, 255), row = rgb(238, 241, 250), row2 = rgb(222, 227, 242), line = rgb(200, 206, 226), text = rgb(28, 32, 48), sub = rgb(88, 96, 122), dim = rgb(140, 148, 170) },
+}
+local THEME_NAMES = { "Midnight", "AMOLED", "Ocean", "Light" }
+
+local T = { ok = rgb(74, 222, 155), warn = rgb(245, 185, 76), err = rgb(255, 107, 122) }
+for k, v in pairs(THEMES.Midnight) do T[k] = v end
+
+local PRESETS = {
+	Violet = rgb(139, 108, 255), Ocean = rgb(64, 160, 255), Mint = rgb(52, 214, 168),
+	Rose = rgb(255, 94, 145), Amber = rgb(255, 176, 64), Crimson = rgb(225, 40, 65),
+	Cyan = rgb(40, 220, 240), Lime = rgb(160, 235, 60), Magenta = rgb(240, 60, 220),
+	Gold = rgb(255, 205, 60), Indigo = rgb(105, 90, 240), Silver = rgb(190, 198, 215),
+}
+local PRESET_NAMES = {}
+for k in pairs(PRESETS) do table.insert(PRESET_NAMES, k) end
+table.sort(PRESET_NAMES)
+
+local function shift(c)
+	local h, s, v = c:ToHSV()
+	return Color3.fromHSV((h + 0.1) % 1, s, v)
+end
+
+local accent = PRESETS.Violet
+local accent2 = shift(accent)
+local hooks, themed, themeHooks, statHooks = {}, {}, {}, {}
+local rainbow = false
+
+local function onAccent(fn)
+	table.insert(hooks, fn)
+	fn(accent, accent2)
+end
+
+function Omega:SetAccent(a, b)
+	if type(a) == "string" then a = PRESETS[a] end
+	if typeof(a) ~= "Color3" then return end
+	accent, accent2 = a, b or shift(a)
+	for _, fn in ipairs(hooks) do fn(accent, accent2) end
+end
+
+-- tema kaydi: nesne.ozellik her tema degisiminde T[key] ile guncellenir
+local function th(o, prop, key)
+	table.insert(themed, { o = o, p = prop, k = key })
+	return o
+end
+local function bg(f, key) return th(f, "BackgroundColor3", key) end
+
+function Omega:SetTheme(name)
+	local t = THEMES[name]
+	if not t then return end
+	for k, v in pairs(t) do T[k] = v end
+	local alive = {}
+	for _, e in ipairs(themed) do
+		if e.o.Parent then
+			e.o[e.p] = T[e.k]
+			table.insert(alive, e)
+		end
+	end
+	themed = alive
+	for _, fn in ipairs(hooks) do fn(accent, accent2) end
+	for _, fn in ipairs(themeHooks) do pcall(fn) end
+end
+
+------------------------------------------------------------------ YARDIMCILAR
+local conns, ticks = {}, {}
+local function bind(sig, fn)
+	local c = sig:Connect(fn)
+	conns[#conns + 1] = c
+	return c
+end
+
+local function new(class, props, kids)
+	local o = Instance.new(class)
+	for k, v in pairs(props or {}) do o[k] = v end
+	for _, c in ipairs(kids or {}) do c.Parent = o end
+	return o
+end
+
+local function tw(o, t, p, style, dir)
+	local x = TS:Create(o, TweenInfo.new(t, style or Enum.EasingStyle.Quint, dir or Enum.EasingDirection.Out), p)
+	x:Play()
+	return x
+end
+
+local function corner(r) return new("UICorner", { CornerRadius = UDim.new(0, r) }) end
+local function stroke(c, t, tr)
+	local st = new("UIStroke", { Color = c or T.line, Thickness = t or 1, Transparency = tr or 0, ApplyStrokeMode = Enum.ApplyStrokeMode.Border })
+	if c == nil or c == T.line then th(st, "Color", "line") end
+	return st
+end
+local function pad(l, t, r, b)
+	return new("UIPadding", { PaddingLeft = UDim.new(0, l), PaddingTop = UDim.new(0, t), PaddingRight = UDim.new(0, r), PaddingBottom = UDim.new(0, b) })
+end
+local function vlist(gap)
+	return new("UIListLayout", { Padding = UDim.new(0, gap or 8), SortOrder = Enum.SortOrder.LayoutOrder })
+end
+
+local function lbl(p, parent)
+	p.BackgroundTransparency = 1
+	p.Font = p.Font or Enum.Font.GothamMedium
+	p.TextColor3 = p.TextColor3 or T.text
+	p.TextSize = p.TextSize or 13
+	p.TextXAlignment = p.TextXAlignment or Enum.TextXAlignment.Left
+	local role = (p.TextColor3 == T.text and "text") or (p.TextColor3 == T.sub and "sub") or (p.TextColor3 == T.dim and "dim") or nil
+	local l = new("TextLabel", p)
+	if role then th(l, "TextColor3", role) end
+	if parent then l.Parent = parent end
+	return l
+end
+
+local function accentGrad(parent, rot)
+	local g = new("UIGradient", { Rotation = rot or 0 })
+	onAccent(function(a, b) g.Color = ColorSequence.new(a, b) end)
+	g.Parent = parent
+	return g
+end
+
+local function fire(cb, ...)
+	if not cb then return end
+	local ok, e = pcall(cb, ...)
+	if not ok then warn("[Omega] callback hatasi: " .. tostring(e)) end
+end
+
+local function isPress(i) return i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch end
+local function isMove(i) return i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch end
+
+-- IgnoreGuiInset acik oldugu icin Y konumu inset ile duzeltilir
+local function ypos(i)
+	if i.UserInputType == Enum.UserInputType.Touch then
+		return i.Position.Y + GuiService:GetGuiInset().Y
+	end
+	return UIS:GetMouseLocation().Y
+end
+
+-- bir alan icinde surukleme (slider, renk secici); fn(rx, ry) 0..1
+local function dragRegion(hit, page, fn, fin)
+	local d = false
+	local function rel(i)
+		return math.clamp((i.Position.X - hit.AbsolutePosition.X) / math.max(1, hit.AbsoluteSize.X), 0, 1),
+			math.clamp((ypos(i) - hit.AbsolutePosition.Y) / math.max(1, hit.AbsoluteSize.Y), 0, 1)
+	end
+	bind(hit.InputBegan, function(i)
+		if isPress(i) then
+			d = true
+			if page then page.ScrollingEnabled = false end
+			fn(rel(i))
+		end
+	end)
+	bind(UIS.InputChanged, function(i)
+		if d and isMove(i) then fn(rel(i)) end
+	end)
+	bind(UIS.InputEnded, function(i)
+		if d and isPress(i) then
+			d = false
+			if page then page.ScrollingEnabled = true end
+			if fin then fin() end
+		end
+	end)
+end
+
+-- surukleme; "suruklendi mi" fonksiyonu dondurur
+local function makeDraggable(handle, target, clampToScreen)
+	local drag, startIn, startPos, moved = false, nil, nil, false
+	bind(handle.InputBegan, function(i)
+		if isPress(i) then
+			drag, moved, startIn, startPos = true, false, i.Position, target.Position
+			local c
+			c = i.Changed:Connect(function()
+				if i.UserInputState == Enum.UserInputState.End then
+					drag = false
+					c:Disconnect()
+				end
+			end)
+		end
+	end)
+	bind(UIS.InputChanged, function(i)
+		if drag and isMove(i) then
+			local d = i.Position - startIn
+			if d.Magnitude > 6 then moved = true end
+			if moved then
+				local nx, ny = startPos.X.Offset + d.X, startPos.Y.Offset + d.Y
+				target.Position = UDim2.new(startPos.X.Scale, nx, startPos.Y.Scale, ny)
+			end
+		end
+	end)
+	return function() return moved end
+end
+
+local function getHost()
+	local ok, ui = pcall(function() return gethui() end)
+	if ok and ui then return ui end
+	ok, ui = pcall(function() return game:GetService("CoreGui") end)
+	if ok and ui then
+		local t = pcall(function() return ui.Name end)
+		if t then return ui end
+	end
+	return lp:WaitForChild("PlayerGui")
+end
+
+------------------------------------------------------------------ ANA GUI
+local host = getHost()
+local old = host:FindFirstChild("AuroraOmega")
+if old then old:Destroy() end
+
+local gui = new("ScreenGui", {
+	Name = "AuroraOmega", ResetOnSpawn = false, ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+	DisplayOrder = 999, IgnoreGuiInset = true,
+})
+gui.Parent = host
+
+-- FPS / Ping olcumu (HUD ve dashboard icin)
+local fpsAcc, fpsFrames = 0, 0
+ticks[#ticks + 1] = function(dt)
+	fpsAcc += dt
+	fpsFrames += 1
+	if fpsAcc >= 0.5 then
+		Omega.Stats.fps = math.floor(fpsFrames / fpsAcc + 0.5)
+		pcall(function() Omega.Stats.ping = math.floor(Stats.Network.ServerStatsItem["Data Ping"]:GetValue()) end)
+		fpsAcc, fpsFrames = 0, 0
+		for _, f in ipairs(statHooks) do pcall(f, Omega.Stats) end
+	end
+end
+
+conns[#conns + 1] = RS.Heartbeat:Connect(function(dt)
+	for _, f in ipairs(ticks) do f(dt) end
+	if rainbow then
+		local h = (os.clock() * 0.2) % 1
+		Omega:SetAccent(Color3.fromHSV(h, 0.7, 1), Color3.fromHSV((h + 0.12) % 1, 0.8, 1))
+	end
+end)
+
+local blur = new("BlurEffect", { Name = "OmegaBlur", Size = 0 })
+blur.Parent = Lighting
+local blurEnabled = not IS_MOBILE -- mobilde performans icin varsayilan kapali
+
+local cleanups = {}
+function Omega:Unload()
+	for _, f in ipairs(cleanups) do pcall(f) end
+	for _, c in ipairs(conns) do pcall(function() c:Disconnect() end) end
+	pcall(function() blur:Destroy() end)
+	pcall(function() gui:Destroy() end)
+	if getgenv then pcall(function() getgenv().OmegaUI = nil end) end
+end
+
+------------------------------------------------------------------ BILDIRIMLER
+local NW = COMPACT and math.min(300, viewport().X - 24) or 290
+local notifHolder = new("Frame", { BackgroundTransparency = 1 }, {
+	new("UIListLayout", {
+		Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder,
+		VerticalAlignment = COMPACT and Enum.VerticalAlignment.Top or Enum.VerticalAlignment.Bottom,
+		HorizontalAlignment = Enum.HorizontalAlignment.Center,
+	}),
+})
+if COMPACT then
+	notifHolder.Size = UDim2.new(0, NW, 1, -20)
+	notifHolder.Position = UDim2.new(0.5, -NW / 2, 0, 10)
+else
+	notifHolder.Size = UDim2.new(0, NW, 1, -24)
+	notifHolder.Position = UDim2.new(1, -(NW + 12), 0, 12)
+end
+notifHolder.Parent = gui
+
+local notifN = 0
+function Omega:Notify(o)
+	o = o or {}
+	notifN += 1
+	local col = ({ success = T.ok, warn = T.warn, error = T.err })[o.Type]
+	local glyph = ({ success = "✓", warn = "!", error = "✕" })[o.Type] or "i"
+	local dur = o.Duration or 4
+	local outPos = COMPACT and UDim2.new(0, 0, -1.8, 0) or UDim2.new(1.3, 0, 0, 0)
+
+	local slot = new("Frame", { Size = UDim2.new(1, 0, 0, 72), BackgroundTransparency = 1, LayoutOrder = COMPACT and -notifN or notifN })
+	local card = new("CanvasGroup", { Size = UDim2.fromScale(1, 1), Position = outPos, BackgroundColor3 = T.card, BorderSizePixel = 0 }, { corner(14) })
+	bg(card, "card")
+	local edge = stroke(col or accent, 1.4, 0.2)
+	edge.Parent = card
+	if not col then onAccent(function(a) edge.Color = a end) end
+
+	local ic = new("Frame", { Size = UDim2.fromOffset(34, 34), Position = UDim2.fromOffset(12, 14), BackgroundColor3 = col or WHITE, BorderSizePixel = 0 }, { corner(10) })
+	if not col then accentGrad(ic, 45) end
+	ic.Parent = card
+	lbl({ Text = glyph, Font = Enum.Font.GothamBlack, TextSize = 16, TextColor3 = WHITE, TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.fromScale(1, 1) }, ic)
+	lbl({ Text = tostring(o.Title or "Aurora"), Font = Enum.Font.GothamBold, TextSize = 13, Size = UDim2.new(1, -62, 0, 16), Position = UDim2.fromOffset(56, 10) }, card)
+	lbl({
+		Text = tostring(o.Content or ""), TextSize = 12, TextColor3 = T.sub, TextWrapped = true, TextYAlignment = Enum.TextYAlignment.Top,
+		TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.new(1, -66, 0, 30), Position = UDim2.fromOffset(56, 28),
+	}, card)
+	local bar = new("Frame", { Size = UDim2.new(1, 0, 0, 3), Position = UDim2.new(0, 0, 1, -3), BackgroundColor3 = col or WHITE, BorderSizePixel = 0 })
+	if not col then accentGrad(bar, 0) end
+	bar.Parent = card
+	card.Parent = slot
+	slot.Parent = notifHolder
+
+	tw(card, 0.5, { Position = UDim2.new(0, 0, 0, 0) }, Enum.EasingStyle.Back)
+	tw(bar, dur, { Size = UDim2.new(0, 0, 0, 3) }, Enum.EasingStyle.Linear)
+	task.delay(dur, function()
+		if not card.Parent then return end
+		tw(card, 0.35, { Position = outPos, GroupTransparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+		task.wait(0.4)
+		slot:Destroy()
+	end)
+end
+
+------------------------------------------------------------------ PENCERE
+function Omega:CreateWindow(opts)
+	opts = opts or {}
+	local Win = { Tabs = {}, Current = nil, ToggleKey = Enum.KeyCode.RightShift, ScaleMul = 1, IsOpen = false }
+	local W, H = COMPACT and 580 or 660, COMPACT and 350 or 430
+	local SIDE, TOP = COMPACT and 64 or 172, COMPACT and 48 or 54
+	local TABH = IS_MOBILE and 42 or 38
+	local BTN = IS_MOBILE and 36 or 32
+
+	local function fit()
+		local vp = viewport()
+		return math.clamp(math.min((vp.X - 14) / W, (vp.Y - 14) / H), 0.45, 1.15)
+	end
+
+	local holder = new("Frame", {
+		Name = "Holder", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromOffset(W, H), BackgroundTransparency = 1, Visible = false,
+	})
+	local uiscale = new("UIScale", { Scale = fit() * 0.7 })
+	uiscale.Parent = holder
+	holder.Parent = gui
+
+	new("ImageLabel", {
+		AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.new(1, 96, 1, 96),
+		BackgroundTransparency = 1, Image = "rbxassetid://6014261993", ImageColor3 = Color3.new(0, 0, 0),
+		ImageTransparency = 0.3, ScaleType = Enum.ScaleType.Slice, SliceCenter = Rect.new(49, 49, 450, 450), ZIndex = 0,
+	}).Parent = holder
+
+	local main = new("CanvasGroup", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = WHITE, BorderSizePixel = 0, GroundTransparency = nil, GroupTransparency = 1, ZIndex = 1 }, { corner(18) })
+	local mainGrad = new("UIGradient", { Rotation = 90, Color = ColorSequence.new(T.bg0, T.bg1) })
+	mainGrad.Parent = main
+	table.insert(themeHooks, function() mainGrad.Color = ColorSequence.new(T.bg0, T.bg1) end)
+	main.Parent = holder
+
+	local blob1 = new("Frame", { Size = UDim2.fromOffset(380, 380), Position = UDim2.fromOffset(-150, -180), BackgroundTransparency = 0.88, BorderSizePixel = 0 }, { corner(190) })
+	local blob2 = new("Frame", { Size = UDim2.fromOffset(340, 340), Position = UDim2.new(1, -190, 1, -150), BackgroundTransparency = 0.9, BorderSizePixel = 0 }, { corner(170) })
+	onAccent(function(a, b) blob1.BackgroundColor3 = a blob2.BackgroundColor3 = b end)
+	blob1.Parent, blob2.Parent = main, main
+	ticks[#ticks + 1] = function()
+		if not holder.Visible then return end
+		local t = os.clock()
+		blob1.Position = UDim2.fromOffset(-150 + math.sin(t * 0.5) * 30, -180 + math.cos(t * 0.4) * 24)
+		blob2.Position = UDim2.new(1, -190 + math.cos(t * 0.45) * 30, 1, -150 + math.sin(t * 0.55) * 24)
+	end
+
+	-- yuzen parcaciklar (mobilde daha az)
+	local pLayer = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ZIndex = 1 })
+	pLayer.Parent = main
+	local parts = {}
+	for i = 1, (IS_MOBILE and 12 or 26) do
+		local sz = math.random(2, 5)
+		local f = new("Frame", { Size = UDim2.fromOffset(sz, sz), BackgroundTransparency = math.random(55, 88) / 100, BorderSizePixel = 0 }, { corner(3) })
+		f.Parent = pLayer
+		parts[i] = { f = f, x = math.random(), y = math.random(), s = math.random(15, 55) / 1000, ph = math.random() * 6 }
+	end
+	onAccent(function(a) for _, p in ipairs(parts) do p.f.BackgroundColor3 = a:Lerp(WHITE, 0.55) end end)
+	ticks[#ticks + 1] = function(dt)
+		if not holder.Visible then return end
+		local t = os.clock()
+		for _, p in ipairs(parts) do
+			p.y -= p.s * dt
+			if p.y < -0.04 then p.y = 1.04 p.x = math.random() end
+			p.f.Position = UDim2.fromScale(p.x + math.sin(t + p.ph) * 0.012, p.y)
+		end
+	end
+
+	local shine = new("Frame", { Size = UDim2.new(0, 110, 1.8, 0), Position = UDim2.new(-0.3, 0, -0.4, 0), Rotation = 18, BackgroundColor3 = WHITE, BorderSizePixel = 0, ZIndex = 50, Visible = false })
+	new("UIGradient", { Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.5, 0.86), NumberSequenceKeypoint.new(1, 1) }) }).Parent = shine
+	shine.Parent = main
+
+	-- animasyonlu cerceve
+	local border = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ZIndex = 10 }, { corner(18) })
+	local bStroke = stroke(WHITE, 1.8, 0)
+	local bGrad = new("UIGradient")
+	onAccent(function(a, b)
+		bGrad.Color = ColorSequence.new({
+			ColorSequenceKeypoint.new(0, a), ColorSequenceKeypoint.new(0.35, T.line),
+			ColorSequenceKeypoint.new(0.65, T.line), ColorSequenceKeypoint.new(1, b),
+		})
+	end)
+	bGrad.Parent = bStroke
+	bStroke.Parent = border
+	border.Parent = holder
+	ticks[#ticks + 1] = function() if holder.Visible then bGrad.Rotation = (os.clock() * 50) % 360 end end
+
+	------------------------------------------------ UST CUBUK
+	local top = new("Frame", { Size = UDim2.new(1, 0, 0, TOP), BackgroundTransparency = 1, ZIndex = 3 })
+	top.Parent = main
+	local topDiv = new("Frame", { Size = UDim2.new(1, 0, 0, 1), Position = UDim2.new(0, 0, 1, -1), BackgroundColor3 = T.line, BackgroundTransparency = 0.35, BorderSizePixel = 0 })
+	bg(topDiv, "line")
+	topDiv.Parent = top
+
+	local lgSize = COMPACT and 30 or 34
+	local logo = new("Frame", { Size = UDim2.fromOffset(lgSize, lgSize), Position = UDim2.fromOffset(14, (TOP - lgSize) / 2), BackgroundColor3 = WHITE, BorderSizePixel = 0 }, { corner(11) })
+	local logoG = accentGrad(logo, 45)
+	ticks[#ticks + 1] = function() if holder.Visible then logoG.Rotation = (os.clock() * 90) % 360 end end
+	lbl({ Text = "A", Font = Enum.Font.GothamBlack, TextSize = 17, TextColor3 = WHITE, TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.fromScale(1, 1) }, logo)
+	logo.Parent = top
+
+	local title = lbl({ Text = opts.Title or "Aurora", Font = Enum.Font.GothamBlack, TextSize = 17, TextColor3 = WHITE, Size = UDim2.fromOffset(220, 20), Position = UDim2.fromOffset(lgSize + 22, TOP / 2 - 18) }, top)
+	accentGrad(title, 0)
+	lbl({ Text = opts.Subtitle or "Omega UI", TextSize = 11, TextColor3 = T.dim, Size = UDim2.fromOffset(220, 14), Position = UDim2.fromOffset(lgSize + 22, TOP / 2 + 3) }, top)
+
+	local function topBtn(txt, x, hoverCol)
+		local b = new("TextButton", {
+			Text = txt, Size = UDim2.fromOffset(BTN, BTN), Position = UDim2.new(1, x, 0.5, -BTN / 2), BackgroundColor3 = hoverCol, BackgroundTransparency = 1,
+			TextColor3 = T.sub, Font = Enum.Font.GothamBold, TextSize = 15, AutoButtonColor = false,
+		}, { corner(10) })
+		th(b, "TextColor3", "sub")
+		b.MouseEnter:Connect(function() tw(b, 0.15, { BackgroundTransparency = 0.55, TextColor3 = T.text }) end)
+		b.MouseLeave:Connect(function() tw(b, 0.15, { BackgroundTransparency = 1, TextColor3 = T.sub }) end)
+		b.Parent = top
+		return b
+	end
+	local closeB = topBtn("✕", -(BTN + 10), T.err)
+	local minB = topBtn("—", -(BTN * 2 + 14), T.row2)
+
+	------------------------------------------------ YAN MENU
+	local side = new("Frame", { Size = UDim2.new(0, SIDE, 1, -TOP), Position = UDim2.fromOffset(0, TOP), BackgroundColor3 = T.bg1, BackgroundTransparency = 0.45, BorderSizePixel = 0, ZIndex = 2 })
+	bg(side, "bg1")
+	side.Parent = main
+	local sideDiv = new("Frame", { Size = UDim2.new(0, 1, 1, -TOP), Position = UDim2.fromOffset(SIDE, TOP), BackgroundColor3 = T.line, BackgroundTransparency = 0.35, BorderSizePixel = 0, ZIndex = 3 })
+	bg(sideDiv, "line")
+	sideDiv.Parent = main
+
+	local profH = COMPACT and 56 or 70
+	local tabList = new("ScrollingFrame", {
+		Size = UDim2.new(1, 0, 1, -profH), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 0,
+		CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y, ZIndex = 3,
+	}, { pad(COMPACT and 7 or 10, 8, COMPACT and 7 or 10, 6) })
+	tabList.Parent = side
+
+	local indicator = new("Frame", { Size = UDim2.new(1, 0, 0, TABH), BackgroundColor3 = WHITE, BackgroundTransparency = 0.82, BorderSizePixel = 0, Visible = false, ZIndex = 3 }, { corner(11) })
+	accentGrad(indicator, 0)
+	local indBar = new("Frame", { Size = UDim2.fromOffset(3, 18), Position = UDim2.new(0, -5, 0.5, -9), BackgroundColor3 = WHITE, BorderSizePixel = 0 }, { corner(2) })
+	accentGrad(indBar, 90)
+	indBar.Parent = indicator
+	indicator.Parent = tabList
+
+	-- profil karti (avatar resimli)
+	local prof = new("Frame", { BackgroundColor3 = T.row, BackgroundTransparency = 0.2, BorderSizePixel = 0, ZIndex = 3 }, { corner(14), stroke(T.line, 1, 0.5) })
+	bg(prof, "row")
+	if COMPACT then
+		prof.Size = UDim2.new(1, -14, 0, 46)
+		prof.Position = UDim2.new(0, 7, 1, -52)
+	else
+		prof.Size = UDim2.new(1, -20, 0, 54)
+		prof.Position = UDim2.new(0, 10, 1, -62)
+	end
+	local avRing = new("Frame", { Size = UDim2.fromOffset(38, 38), BackgroundColor3 = WHITE, BorderSizePixel = 0, ZIndex = 4 }, { corner(19) })
+	avRing.Position = COMPACT and UDim2.new(0.5, -19, 0.5, -19) or UDim2.fromOffset(8, 8)
+	local avG = accentGrad(avRing, 0)
+	ticks[#ticks + 1] = function() if holder.Visible then avG.Rotation = (os.clock() * 120) % 360 end end
+	local avatar = new("ImageLabel", { Size = UDim2.new(1, -4, 1, -4), Position = UDim2.fromOffset(2, 2), BackgroundColor3 = T.bg1, BorderSizePixel = 0, Image = "", ZIndex = 5 }, { corner(17) })
+	bg(avatar, "bg1")
+	avatar.Parent = avRing
+	avRing.Parent = prof
+	if not COMPACT then
+		lbl({ Text = lp.DisplayName, Font = Enum.Font.GothamBold, TextSize = 12, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.new(1, -64, 0, 16), Position = UDim2.fromOffset(54, 11), ZIndex = 4 }, prof)
+		lbl({ Text = "@" .. lp.Name, TextSize = 10, TextColor3 = T.dim, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.new(1, -64, 0, 14), Position = UDim2.fromOffset(54, 28), ZIndex = 4 }, prof)
+	end
+	local online = new("Frame", { Size = UDim2.fromOffset(9, 9), Position = COMPACT and UDim2.new(0.5, 8, 0.5, 8) or UDim2.fromOffset(38, 38), BackgroundColor3 = T.ok, BorderSizePixel = 0, ZIndex = 6 }, { corner(5) })
+	online.Parent = prof
+	prof.Parent = side
+	task.spawn(function()
+		local ok, img = pcall(function()
+			return Players:GetUserThumbnailAsync(lp.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size100x100)
+		end)
+		if ok and img and avatar.Parent then avatar.Image = img end
+	end)
+
+	local pages = new("Frame", { Size = UDim2.new(1, -SIDE - 1, 1, -TOP), Position = UDim2.fromOffset(SIDE + 1, TOP), BackgroundTransparency = 1, ClipsDescendants = true, ZIndex = 2 })
+	pages.Parent = main
+
+	makeDraggable(top, holder)
+
+	------------------------------------------------ ACMA / KAPAMA
+	local function applyScale(animate)
+		local target = fit() * Win.ScaleMul
+		if animate then tw(uiscale, 0.25, { Scale = target }, Enum.EasingStyle.Quad) else uiscale.Scale = target end
+	end
+	function Win:SetScaleMul(m)
+		Win.ScaleMul = math.clamp(m, 0.5, 1.4)
+		if Win.IsOpen then applyScale(true) end
+	end
+	local function hookCamera()
+		local cam = workspace.CurrentCamera
+		if cam then
+			bind(cam:GetPropertyChangedSignal("ViewportSize"), function() if Win.IsOpen then applyScale(true) end end)
+		end
+	end
+	hookCamera()
+	bind(workspace:GetPropertyChangedSignal("CurrentCamera"), function() hookCamera() end)
+
+	-- launcher: mobilde solda ortada (joystick / ziplama butonuna carpmaz)
+	local LS = IS_MOBILE and 58 or 54
+	local launcher = new("TextButton", {
+		Name = "Launcher", Text = "", AutoButtonColor = false, Size = UDim2.fromOffset(LS, LS),
+		BackgroundColor3 = T.bg0, BorderSizePixel = 0, Visible = false, ZIndex = 30,
+	}, { corner(LS / 2) })
+	bg(launcher, "bg0")
+	if IS_MOBILE then
+		launcher.AnchorPoint = Vector2.new(0, 0.5)
+		launcher.Position = UDim2.new(0, 14, 0.38, 0)
+	else
+		launcher.AnchorPoint = Vector2.new(0, 1)
+		launcher.Position = UDim2.new(0, 18, 1, -18)
+	end
+	local lStroke = stroke(WHITE, 2, 0.1)
+	accentGrad(lStroke, 45)
+	lStroke.Parent = launcher
+	local lScale = new("UIScale", { Scale = 1 })
+	lScale.Parent = launcher
+	lbl({ Text = "A", Font = Enum.Font.GothamBlack, TextSize = 22, TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.fromScale(1, 1), ZIndex = 31 }, launcher)
+	launcher.Parent = gui
+	ticks[#ticks + 1] = function()
+		if launcher.Visible then lStroke.Thickness = 2 + math.sin(os.clock() * 3) * 0.9 end
+	end
+	local launcherMoved = makeDraggable(launcher, launcher)
+	launcher.MouseEnter:Connect(function() tw(lScale, 0.15, { Scale = 1.1 }) end)
+	launcher.MouseLeave:Connect(function() tw(lScale, 0.15, { Scale = 1 }) end)
+
+	function Win:Open()
+		if Win.IsOpen then return end
+		Win.IsOpen = true
+		launcher.Visible = false
+		holder.Visible = true
+		uiscale.Scale = fit() * Win.ScaleMul * 0.72
+		tw(uiscale, 0.55, { Scale = fit() * Win.ScaleMul }, Enum.EasingStyle.Back)
+		tw(main, 0.4, { GroupTransparency = 0 })
+		if blurEnabled then tw(blur, 0.5, { Size = 14 }) end
+		shine.Position = UDim2.new(-0.3, 0, -0.4, 0)
+		shine.Visible = true
+		tw(shine, 1.1, { Position = UDim2.new(1.3, 0, -0.4, 0) }, Enum.EasingStyle.Quad).Completed:Connect(function() shine.Visible = false end)
+	end
+	function Win:Close(toLauncher)
+		if not Win.IsOpen then return end
+		Win.IsOpen = false
+		tw(uiscale, 0.28, { Scale = uiscale.Scale * 0.75 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+		tw(main, 0.25, { GroupTransparency = 1 })
+		tw(blur, 0.3, { Size = 0 })
+		task.delay(0.3, function()
+			if not Win.IsOpen then
+				holder.Visible = false
+				if toLauncher then
+					launcher.Visible = true
+					lScale.Scale = 0.01
+					tw(lScale, 0.4, { Scale = 1 }, Enum.EasingStyle.Back)
+				end
+			end
+		end)
+	end
+	function Win:Toggle()
+		if Win.IsOpen then Win:Close(true) else Win:Open() end
+	end
+	function Win:SetBlur(on)
+		blurEnabled = on
+		tw(blur, 0.3, { Size = (on and Win.IsOpen) and 14 or 0 })
+	end
+
+	bind(UIS.InputBegan, function(i, gp)
+		if not gp and i.KeyCode == Win.ToggleKey then Win:Toggle() end
+	end)
+	closeB.MouseButton1Click:Connect(function() Win:Close(false) task.delay(0.35, function() Omega:Unload() end) end)
+	minB.MouseButton1Click:Connect(function() Win:Close(true) end)
+	launcher.MouseButton1Click:Connect(function()
+		if launcherMoved() then return end
+		Win:Open()
+	end)
+
+	------------------------------------------------ HUD (FPS / Ping rozeti)
+	local hud = new("Frame", {
+		Size = UDim2.fromOffset(214, 30), AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 10),
+		BackgroundColor3 = T.bg0, BackgroundTransparency = 0.12, BorderSizePixel = 0, Visible = false, ZIndex = 40,
+	}, { corner(15) })
+	bg(hud, "bg0")
+	local hs = stroke(WHITE, 1.4, 0)
+	accentGrad(hs, 0)
+	hs.Parent = hud
+	local hudText = lbl({ Text = "", Font = Enum.Font.GothamBold, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.fromScale(1, 1), ZIndex = 41 }, hud)
+	hud.Parent = gui
+	makeDraggable(hud, hud)
+	local function hudRefresh(s) hudText.Text = string.format("%s  •  %d FPS  •  %d ms", opts.Title or "Aurora", s.fps, s.ping) end
+	table.insert(statHooks, hudRefresh)
+	function Win:SetHud(on)
+		hud.Visible = on
+		if on then hudRefresh(Omega.Stats) end
+	end
+
+	------------------------------------------------ SEKMELER
+	local tabCount = 0
+	local function paintTabs()
+		for _, t in ipairs(Win.Tabs) do
+			local on = t == Win.Current
+			if t.text then t.text.TextColor3 = on and T.text or T.sub end
+			if t.iconLabel then t.iconLabel.TextColor3 = on and accent or T.dim end
+			if t.iconImage then t.iconImage.ImageColor3 = on and accent or T.dim end
+		end
+	end
+	local function selectTab(tab)
+		if Win.Current == tab then return end
+		Win.Current = tab
+		for _, t in ipairs(Win.Tabs) do
+			local on = t == tab
+			if t.text then tw(t.text, 0.25, { TextColor3 = on and T.text or T.sub }) end
+			if t.iconLabel then tw(t.iconLabel, 0.25, { TextColor3 = on and accent or T.dim }) end
+			if t.iconImage then tw(t.iconImage, 0.25, { ImageColor3 = on and accent or T.dim }) end
+			if not on then t.page.Visible = false end
+		end
+		indicator.Visible = true
+		tw(indicator, 0.4, { Position = UDim2.fromOffset(0, tab.y) }, Enum.EasingStyle.Back)
+		tab.page.Position = UDim2.fromOffset(22, 0)
+		tab.page.Visible = true
+		tw(tab.page, 0.4, { Position = UDim2.fromOffset(0, 0) })
+	end
+	onAccent(function() paintTabs() end)
+	table.insert(themeHooks, paintTabs)
+
+	function Win:AddTab(name, icon)
+		tabCount += 1
+		local tab = { name = name, y = (tabCount - 1) * (TABH + 4), rows = {}, secs = {} }
+		if not indicator.Visible then indicator.Position = UDim2.fromOffset(0, tab.y) end
+		local btn = new("TextButton", {
+			Text = "", Size = UDim2.new(1, 0, 0, TABH), Position = UDim2.fromOffset(0, tab.y), BackgroundTransparency = 1, AutoButtonColor = false, ZIndex = 4,
+		})
+		btn.Parent = tabList
+		if type(icon) == "string" and icon:find("rbxasset") then
+			tab.iconImage = new("ImageLabel", { Size = UDim2.fromOffset(20, 20), BackgroundTransparency = 1, Image = icon, ImageColor3 = T.dim, ZIndex = 5 })
+			tab.iconImage.AnchorPoint = COMPACT and Vector2.new(0.5, 0.5) or Vector2.new(0, 0.5)
+			tab.iconImage.Position = COMPACT and UDim2.fromScale(0.5, 0.5) or UDim2.new(0, 12, 0.5, 0)
+			tab.iconImage.Parent = btn
+		else
+			tab.iconLabel = lbl({
+				Text = icon or string.upper(string.sub(name, 1, 1)), Font = Enum.Font.GothamBold, TextSize = COMPACT and 19 or 16, TextColor3 = T.dim,
+				TextXAlignment = Enum.TextXAlignment.Center, Size = COMPACT and UDim2.fromScale(1, 1) or UDim2.fromOffset(34, TABH),
+				Position = COMPACT and UDim2.fromOffset(0, 0) or UDim2.fromOffset(2, 0), ZIndex = 5,
+			}, btn)
+		end
+		if not COMPACT then
+			tab.text = lbl({ Text = name, Font = Enum.Font.GothamBold, TextSize = 13, TextColor3 = T.sub, Size = UDim2.new(1, -44, 1, 0), Position = UDim2.fromOffset(40, 0), ZIndex = 5 }, btn)
+			btn.MouseEnter:Connect(function() if Win.Current ~= tab then tw(tab.text, 0.15, { TextColor3 = T.text }) end end)
+			btn.MouseLeave:Connect(function() if Win.Current ~= tab then tw(tab.text, 0.15, { TextColor3 = T.sub }) end end)
+		end
+		btn.MouseButton1Click:Connect(function() selectTab(tab) end)
+
+		local page = new("ScrollingFrame", {
+			Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = IS_MOBILE and 4 or 3,
+			ScrollBarImageColor3 = T.line, CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y, Visible = false,
+			ScrollingDirection = Enum.ScrollingDirection.Y,
+		}, { pad(COMPACT and 10 or 14, COMPACT and 10 or 14, COMPACT and 10 or 14, COMPACT and 12 or 14), vlist(COMPACT and 8 or 10) })
+		th(page, "ScrollBarImageColor3", "line")
+		page.Parent = pages
+		tab.page = page
+		table.insert(Win.Tabs, tab)
+		if #Win.Tabs == 1 then task.defer(selectTab, tab) end
+
+		-- sayfa ici arama
+		local sbox = new("Frame", { Size = UDim2.new(1, 0, 0, RH - 4), BackgroundColor3 = T.row, BorderSizePixel = 0, LayoutOrder = 0 }, { corner(12), stroke(T.line, 1, 0.5) })
+		bg(sbox, "row")
+		lbl({ Text = "⌕", TextSize = 18, TextColor3 = T.dim, TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.fromOffset(34, RH - 4) }, sbox)
+		local search = new("TextBox", {
+			Size = UDim2.new(1, -44, 1, 0), Position = UDim2.fromOffset(34, 0), BackgroundTransparency = 1, Text = "", PlaceholderText = "Search in " .. name .. "...",
+			PlaceholderColor3 = T.dim, TextColor3 = T.text, Font = Enum.Font.GothamMedium, TextSize = 12, ClearTextOnFocus = false,
+			TextXAlignment = Enum.TextXAlignment.Left, ClipsDescendants = true,
+		})
+		th(search, "TextColor3", "text")
+		search.Parent = sbox
+		sbox.Parent = page
+		bind(search:GetPropertyChangedSignal("Text"), function()
+			local q = string.lower(search.Text)
+			for _, s in ipairs(tab.secs) do
+				local any = false
+				for _, r in ipairs(s.rows) do
+					local show = q == "" or (r.name ~= "" and string.find(r.name, q, 1, true) ~= nil)
+					r.f.Visible = show
+					if show then any = true end
+				end
+				s.card.Visible = q == "" or any
+				if q ~= "" and any then s.content.Visible = true end
+			end
+		end)
+
+		local Tab = {}
+		local order = 0
+
+		function Tab:AddSection(titleText, collapsed)
+			order += 1
+			local card = new("Frame", {
+				Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundColor3 = T.card, BackgroundTransparency = 0.12,
+				BorderSizePixel = 0, LayoutOrder = order,
+			}, { corner(14), stroke(T.line, 1, 0.4), new("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder }) })
+			bg(card, "card")
+			local head = new("TextButton", { Text = "", Size = UDim2.new(1, 0, 0, RH), BackgroundTransparency = 1, AutoButtonColor = false, LayoutOrder = 0 })
+			local dot = new("Frame", { Size = UDim2.fromOffset(7, 7), Position = UDim2.new(0, 15, 0.5, -3), BackgroundColor3 = WHITE, BorderSizePixel = 0 }, { corner(4) })
+			accentGrad(dot, 45)
+			dot.Parent = head
+			lbl({ Text = string.upper(titleText), Font = Enum.Font.GothamBold, TextSize = 11, TextColor3 = T.sub, Size = UDim2.new(1, -60, 1, 0), Position = UDim2.fromOffset(30, 0) }, head)
+			local arrow = lbl({ Text = "›", Font = Enum.Font.GothamBold, TextSize = 20, TextColor3 = T.dim, TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.fromOffset(34, RH), Position = UDim2.new(1, -40, 0, 0), Rotation = collapsed and 0 or 90 }, head)
+			head.Parent = card
+			local content = new("Frame", { Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, LayoutOrder = 1, Visible = not collapsed }, { pad(10, 0, 10, 10), vlist(IS_MOBILE and 8 or 6) })
+			content.Parent = card
+			card.Parent = page
+			head.MouseButton1Click:Connect(function()
+				content.Visible = not content.Visible
+				tw(arrow, 0.25, { Rotation = content.Visible and 90 or 0 }, Enum.EasingStyle.Back)
+			end)
+			local secEntry = { card = card, content = content, rows = {} }
+			table.insert(tab.secs, secEntry)
+
+			local Sec = {}
+
+			local function regRow(f, name) table.insert(secEntry.rows, { f = f, name = string.lower(name or "") }) end
+			local function row(h, name)
+				local f = new("Frame", { Size = UDim2.new(1, 0, 0, h or RH), BackgroundColor3 = T.row, BorderSizePixel = 0, ClipsDescendants = true }, { corner(10), stroke(T.line, 1, 0.55) })
+				bg(f, "row")
+				f.MouseEnter:Connect(function() tw(f, 0.15, { BackgroundColor3 = T.row2 }) end)
+				f.MouseLeave:Connect(function() tw(f, 0.15, { BackgroundColor3 = T.row }) end)
+				f.Parent = content
+				regRow(f, name)
+				return f
+			end
+			local function setFlag(o, v) if o.Flag then Omega.Flags[o.Flag] = v end end
+			local function reg(o, v, setter)
+				if o.Flag then Omega.Flags[o.Flag] = v Omega._setters[o.Flag] = setter end
+			end
+
+			function Sec:AddLabel(text)
+				local r = row(IS_MOBILE and 36 or 32)
+				local l = lbl({ Text = text, TextSize = 12, TextColor3 = T.sub, TextWrapped = true, Size = UDim2.new(1, -24, 1, 0), Position = UDim2.fromOffset(12, 0) }, r)
+				return { Set = function(_, t) l.Text = t end }
+			end
+
+			function Sec:AddDivider(text)
+				local f = new("Frame", { Size = UDim2.new(1, 0, 0, 20), BackgroundTransparency = 1 })
+				local ln = new("Frame", { Size = UDim2.new(1, 0, 0, 1), Position = UDim2.fromScale(0, 0.5), BackgroundColor3 = T.line, BackgroundTransparency = 0.3, BorderSizePixel = 0 })
+				bg(ln, "line")
+				ln.Parent = f
+				if text then
+					local tl = lbl({ Text = "  " .. string.upper(text) .. "  ", Font = Enum.Font.GothamBold, TextSize = 10, TextColor3 = T.dim, BackgroundTransparency = 0, BackgroundColor3 = T.card, AutomaticSize = Enum.AutomaticSize.X, Size = UDim2.fromOffset(0, 16), AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), TextXAlignment = Enum.TextXAlignment.Center })
+					bg(tl, "card")
+					tl.Parent = f
+				end
+				f.Parent = content
+				regRow(f, "")
+			end
+
+			function Sec:AddParagraph(titleText, body)
+				local f = new("Frame", { Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundColor3 = T.row, BorderSizePixel = 0 }, { corner(10), stroke(T.line, 1, 0.55), pad(12, 10, 12, 10), vlist(4) })
+				bg(f, "row")
+				lbl({ Text = titleText, Font = Enum.Font.GothamBold, TextSize = 13, TextWrapped = true, AutomaticSize = Enum.AutomaticSize.Y, Size = UDim2.new(1, 0, 0, 0), LayoutOrder = 1 }, f)
+				local b = lbl({ Text = body or "", TextSize = 12, TextColor3 = T.sub, TextWrapped = true, AutomaticSize = Enum.AutomaticSize.Y, Size = UDim2.new(1, 0, 0, 0), LayoutOrder = 2 }, f)
+				f.Parent = content
+				regRow(f, titleText)
+				return { Set = function(_, t) b.Text = t end }
+			end
+
+			function Sec:AddCard(h) return row(h or 80) end
+
+			function Sec:AddProgress(o)
+				local r = row(IS_MOBILE and 52 or 48, o.Name)
+				lbl({ Text = o.Name, Position = UDim2.fromOffset(14, 6), Size = UDim2.new(1, -90, 0, 18) }, r)
+				local pv = lbl({ Text = "0%", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = T.sub, TextXAlignment = Enum.TextXAlignment.Right, Size = UDim2.fromOffset(70, 18), Position = UDim2.new(1, -82, 0, 6) }, r)
+				local track = new("Frame", { Size = UDim2.new(1, -28, 0, 8), Position = UDim2.new(0, 14, 1, -18), BackgroundColor3 = T.row2, BorderSizePixel = 0 }, { corner(4) })
+				bg(track, "row2")
+				local fill = new("Frame", { Size = UDim2.fromScale(0, 1), BackgroundColor3 = WHITE, BorderSizePixel = 0 }, { corner(4) })
+				accentGrad(fill, 0)
+				fill.Parent = track
+				track.Parent = r
+				local obj = {}
+				function obj:Set(pct)
+					pct = math.clamp(pct, 0, 100)
+					tw(fill, 0.4, { Size = UDim2.fromScale(pct / 100, 1) })
+					pv.Text = math.floor(pct + 0.5) .. "%"
+				end
+				obj:Set(o.Default or 0)
+				return obj
+			end
+
+			function Sec:AddButton(o)
+				local r = row(RH, o.Name)
+				lbl({ Text = o.Name, Position = UDim2.fromOffset(14, 0), Size = UDim2.new(1, -50, 1, 0) }, r)
+				lbl({ Text = "›", Font = Enum.Font.GothamBold, TextSize = 20, TextColor3 = T.dim, TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.fromOffset(30, RH), Position = UDim2.new(1, -36, 0, 0) }, r)
+				local b = new("TextButton", { Text = "", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, AutoButtonColor = false, ZIndex = 5 })
+				b.Parent = r
+				b.Activated:Connect(function(input)
+					local rx, ry = 0.5, 0.5
+					if input and input.Position then
+						rx = math.clamp((input.Position.X - r.AbsolutePosition.X) / math.max(1, r.AbsoluteSize.X), 0, 1)
+						ry = math.clamp((ypos(input) - r.AbsolutePosition.Y) / math.max(1, r.AbsoluteSize.Y), 0, 1)
+					end
+					local rip = new("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(rx, ry), Size = UDim2.fromOffset(0, 0), BackgroundColor3 = accent, BackgroundTransparency = 0.55, BorderSizePixel = 0, ZIndex = 3 }, { corner(200) })
+					rip.Parent = r
+					tw(rip, 0.55, { Size = UDim2.fromOffset(420, 420), BackgroundTransparency = 1 })
+					task.delay(0.6, function() rip:Destroy() end)
+					fire(o.Callback)
+				end)
+				return r
+			end
+
+			function Sec:AddToggle(o)
+				local st = o.Default and true or false
+				local r = row(RH, o.Name)
+				local TWd, THt = IS_MOBILE and 50 or 44, IS_MOBILE and 26 or 22
+				lbl({ Text = o.Name, Position = UDim2.fromOffset(14, 0), Size = UDim2.new(1, -(TWd + 30), 1, 0) }, r)
+				local track = new("Frame", { Size = UDim2.fromOffset(TWd, THt), AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -12, 0.5, 0), BackgroundColor3 = T.row2, BorderSizePixel = 0 }, { corner(THt / 2), stroke(T.line, 1, 0.3) })
+				local kn = THt - 6
+				local knob = new("Frame", { Size = UDim2.fromOffset(kn, kn), AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 3, 0.5, 0), BackgroundColor3 = WHITE, BorderSizePixel = 0 }, { corner(kn / 2) })
+				knob.Parent = track
+				track.Parent = r
+				local btn = new("TextButton", { Text = "", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ZIndex = 5 })
+				btn.Parent = r
+				local obj = {}
+				local function paint(anim)
+					local t = anim and 0.25 or 0
+					tw(track, t, { BackgroundColor3 = st and accent or T.row2 })
+					tw(knob, t, { Position = st and UDim2.new(1, -(kn + 3), 0.5, 0) or UDim2.new(0, 3, 0.5, 0) }, Enum.EasingStyle.Back)
+				end
+				onAccent(function() if st then track.BackgroundColor3 = accent end end)
+				table.insert(themeHooks, function() paint(false) end)
+				function obj:Set(v, silent)
+					st = v and true or false
+					paint(true)
+					setFlag(o, st)
+					if not silent then fire(o.Callback, st) end
+				end
+				function obj:Get() return st end
+				btn.MouseButton1Click:Connect(function() obj:Set(not st) end)
+				paint(false)
+				reg(o, st, function(v) obj:Set(v) end)
+				if st then task.defer(fire, o.Callback, st) end
+				return obj
+			end
+
+			function Sec:AddSlider(o)
+				local min, max, inc = o.Min or 0, o.Max or 100, o.Increment or 1
+				local val
+				local r = row(IS_MOBILE and 66 or 54, o.Name)
+				lbl({ Text = o.Name, Position = UDim2.fromOffset(14, 6), Size = UDim2.new(1, -90, 0, 18) }, r)
+				local vl = lbl({ Text = "", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = T.sub, TextXAlignment = Enum.TextXAlignment.Right, Size = UDim2.fromOffset(70, 18), Position = UDim2.new(1, -82, 0, 6) }, r)
+				local trackH = IS_MOBILE and 8 or 6
+				local track = new("Frame", { BackgroundColor3 = T.row2, BorderSizePixel = 0 }, { corner(trackH / 2) })
+				bg(track, "row2")
+				if IS_MOBILE then
+					track.Size = UDim2.new(1, -92, 0, trackH)
+					track.Position = UDim2.new(0, 46, 1, -22)
+				else
+					track.Size = UDim2.new(1, -28, 0, trackH)
+					track.Position = UDim2.new(0, 14, 1, -20)
+				end
+				local fill = new("Frame", { Size = UDim2.fromScale(0, 1), BackgroundColor3 = WHITE, BorderSizePixel = 0 }, { corner(trackH / 2) })
+				accentGrad(fill, 0)
+				fill.Parent = track
+				local ks = IS_MOBILE and 20 or 14
+				local knob = new("Frame", { Size = UDim2.fromOffset(ks, ks), AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0, 0, 0.5, 0), BackgroundColor3 = WHITE, BorderSizePixel = 0, ZIndex = 3 }, { corner(ks / 2), stroke(accent, 2, 0) })
+				local kStroke = knob:FindFirstChildOfClass("UIStroke")
+				onAccent(function(a) kStroke.Color = a end)
+				knob.Parent = track
+				track.Parent = r
+				local hit = new("Frame", { BackgroundTransparency = 1, ZIndex = 6 })
+				if IS_MOBILE then
+					hit.Size = UDim2.new(1, -80, 0, 38)
+					hit.Position = UDim2.new(0, 40, 1, -42)
+				else
+					hit.Size = UDim2.new(1, 0, 0, 26)
+					hit.Position = UDim2.new(0, 0, 1, -30)
+				end
+				hit.Parent = r
+				local obj = {}
+				local function setVal(v, silent, instant)
+					v = math.clamp(math.floor(v / inc + 0.5) * inc, min, max)
+					v = tonumber(string.format("%.4f", v))
+					local changed = v ~= val
+					val = v
+					local rr = (max - min) == 0 and 0 or (v - min) / (max - min)
+					local t = instant and 0 or 0.1
+					tw(fill, t, { Size = UDim2.fromScale(rr, 1) })
+					tw(knob, t, { Position = UDim2.new(rr, 0, 0.5, 0) })
+					vl.Text = tostring(v) .. (o.Suffix or "")
+					setFlag(o, v)
+					if changed and not silent then fire(o.Callback, v) end
+				end
+				dragRegion(hit, page, function(rx) setVal(min + (max - min) * rx) end)
+				-- mobil: hassas ayar icin - / + butonlari
+				if IS_MOBILE then
+					local function stepBtn(txt, pos, dir)
+						local b = new("TextButton", {
+							Text = txt, Size = UDim2.fromOffset(30, 30), Position = pos, BackgroundColor3 = T.bg1, BackgroundTransparency = 0.2, BorderSizePixel = 0,
+							Font = Enum.Font.GothamBold, TextSize = 18, TextColor3 = T.sub, AutoButtonColor = false, ZIndex = 7,
+						}, { corner(9) })
+						bg(b, "bg1")
+						th(b, "TextColor3", "sub")
+						b.Activated:Connect(function()
+							tw(b, 0.08, { TextColor3 = accent })
+							task.delay(0.12, function() tw(b, 0.15, { TextColor3 = T.sub }) end)
+							setVal((val or min) + inc * dir)
+						end)
+						b.Parent = r
+					end
+					stepBtn("−", UDim2.new(0, 8, 1, -34), -1)
+					stepBtn("+", UDim2.new(1, -38, 1, -34), 1)
+				end
+				function obj:Set(v) setVal(v, false, false) end
+				function obj:Get() return val end
+				setVal(math.clamp(o.Default or min, min, max), true, true)
+				reg(o, val, function(v) obj:Set(v) end)
+				return obj
+			end
+
+			-- tek / coklu secimli acilir liste ortak kodu
+			local function makeDropdown(o, multi)
+				local opts2 = o.Options or {}
+				local cur = o.Default
+				local sel = {}
+				if multi then
+					for _, n in ipairs(o.Default or {}) do sel[n] = true end
+				else
+					cur = o.Default or opts2[1]
+				end
+				local open = false
+				local IH = IS_MOBILE and 34 or 28
+				local r = row(RH, o.Name)
+				lbl({ Text = o.Name, Position = UDim2.fromOffset(14, 0), Size = UDim2.new(0.45, -14, 0, RH) }, r)
+				local vl = lbl({ Text = "", TextSize = 12, TextColor3 = T.sub, TextTruncate = Enum.TextTruncate.AtEnd, TextXAlignment = Enum.TextXAlignment.Right, Size = UDim2.new(0.55, -40, 0, RH), Position = UDim2.new(0.45, 0, 0, 0) }, r)
+				local arrow = lbl({ Text = "›", Font = Enum.Font.GothamBold, TextSize = 20, TextColor3 = T.dim, TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.fromOffset(28, RH), Position = UDim2.new(1, -32, 0, 0), Rotation = 90 }, r)
+				local lst = new("Frame", { Position = UDim2.fromOffset(8, RH + 6), Size = UDim2.new(1, -16, 0, 0), BackgroundTransparency = 1 }, { vlist(4) })
+				lst.Parent = r
+				local head2 = new("TextButton", { Text = "", Size = UDim2.new(1, 0, 0, RH), BackgroundTransparency = 1, ZIndex = 5 })
+				head2.Parent = r
+				local obj = {}
+				local function height() return open and (RH + 10 + #opts2 * (IH + 4)) or RH end
+				local function valueOut()
+					if multi then
+						local t = {}
+						for _, n in ipairs(opts2) do if sel[n] then table.insert(t, n) end end
+						return t
+					end
+					return cur
+				end
+				local function showText()
+					if multi then
+						local t = valueOut()
+						vl.Text = #t == 0 and "None" or (#t <= 2 and table.concat(t, ", ") or (#t .. " selected"))
+					else
+						vl.Text = tostring(cur or "-")
+					end
+				end
+				local function build()
+					for _, c in ipairs(lst:GetChildren()) do if c:IsA("TextButton") then c:Destroy() end end
+					for idx, name in ipairs(opts2) do
+						local on = multi and sel[name] or (not multi and name == cur)
+						local b = new("TextButton", {
+							Text = (multi and (sel[name] and "✓  " or "    ") or "") .. tostring(name), Size = UDim2.new(1, 0, 0, IH), BackgroundColor3 = T.bg1, BackgroundTransparency = 0.3, BorderSizePixel = 0,
+							Font = Enum.Font.GothamMedium, TextSize = 12, TextColor3 = on and accent or T.sub, AutoButtonColor = false, LayoutOrder = idx,
+						}, { corner(8) })
+						bg(b, "bg1")
+						b.MouseEnter:Connect(function() tw(b, 0.12, { BackgroundTransparency = 0 }) end)
+						b.MouseLeave:Connect(function() tw(b, 0.12, { BackgroundTransparency = 0.3 }) end)
+						b.Activated:Connect(function()
+							if multi then
+								sel[name] = not sel[name] or nil
+								obj:Changed()
+							else
+								obj:Set(name)
+								obj:Toggle(false)
+							end
+						end)
+						b.Parent = lst
+					end
+				end
+				function obj:Changed(silent)
+					showText()
+					build()
+					setFlag(o, valueOut())
+					if not silent then fire(o.Callback, valueOut()) end
+				end
+				function obj:Toggle(v)
+					if v == nil then open = not open else open = v end
+					tw(r, 0.3, { Size = UDim2.new(1, 0, 0, height()) })
+					tw(arrow, 0.3, { Rotation = open and -90 or 90 }, Enum.EasingStyle.Back)
+				end
+				function obj:Set(v, silent)
+					if multi then
+						sel = {}
+						for _, n in ipairs(v or {}) do sel[n] = true end
+					else
+						cur = v
+					end
+					obj:Changed(silent)
+				end
+				function obj:SetOptions(list2)
+					opts2 = list2
+					build()
+					if open then r.Size = UDim2.new(1, 0, 0, height()) end
+				end
+				function obj:Get() return valueOut() end
+				head2.MouseButton1Click:Connect(function() obj:Toggle() end)
+				table.insert(themeHooks, build)
+				showText()
+				build()
+				reg(o, valueOut(), function(v) obj:Set(v) end)
+				return obj
+			end
+			function Sec:AddDropdown(o) return makeDropdown(o, false) end
+			function Sec:AddMultiDropdown(o) return makeDropdown(o, true) end
+
+			function Sec:AddKeybind(o)
+				local key = o.Default or Enum.KeyCode.F
+				local listening = false
+				local r = row(RH, o.Name)
+				lbl({ Text = o.Name, Position = UDim2.fromOffset(14, 0), Size = UDim2.new(1, -110, 1, 0) }, r)
+				local kb = new("TextButton", {
+					Text = key.Name, Size = UDim2.fromOffset(84, IS_MOBILE and 30 or 24), AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -10, 0.5, 0),
+					BackgroundColor3 = T.bg1, BackgroundTransparency = 0.2, BorderSizePixel = 0, Font = Enum.Font.GothamBold, TextSize = 11,
+					TextColor3 = T.sub, AutoButtonColor = false, ZIndex = 5,
+				}, { corner(8), stroke(T.line, 1, 0.3) })
+				bg(kb, "bg1")
+				kb.Parent = r
+				local obj = {}
+				function obj:Set(k, silent)
+					if type(k) == "string" then k = Enum.KeyCode[k] end
+					if not k then return end
+					key = k
+					kb.Text = key.Name
+					setFlag(o, key.Name)
+					if not silent then fire(o.Changed, key) end
+				end
+				function obj:Get() return key end
+				kb.MouseButton1Click:Connect(function()
+					listening = true
+					kb.Text = "..."
+					tw(kb, 0.15, { TextColor3 = accent })
+				end)
+				bind(UIS.InputBegan, function(i, gp)
+					if listening then
+						if i.UserInputType == Enum.UserInputType.Keyboard then
+							listening = false
+							tw(kb, 0.15, { TextColor3 = T.sub })
+							if i.KeyCode ~= Enum.KeyCode.Escape then obj:Set(i.KeyCode) else kb.Text = key.Name end
+						end
+						return
+					end
+					if not gp and i.KeyCode == key then fire(o.Callback) end
+				end)
+				reg(o, key.Name, function(v) obj:Set(v) end)
+				return obj
+			end
+
+			function Sec:AddTextBox(o)
+				local r = row(RH, o.Name)
+				lbl({ Text = o.Name, Position = UDim2.fromOffset(14, 0), Size = UDim2.new(0.4, -14, 1, 0) }, r)
+				local box = new("TextBox", {
+					Size = UDim2.new(0.6, -22, 0, IS_MOBILE and 30 or 24), AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -10, 0.5, 0), BackgroundColor3 = T.bg1,
+					BackgroundTransparency = 0.2, BorderSizePixel = 0, Text = o.Default or "", PlaceholderText = o.Placeholder or "...", PlaceholderColor3 = T.dim,
+					TextColor3 = T.text, Font = Enum.Font.GothamMedium, TextSize = 12, ClearTextOnFocus = false, ClipsDescendants = true,
+				}, { corner(8), pad(8, 0, 8, 0) })
+				bg(box, "bg1")
+				th(box, "TextColor3", "text")
+				local st = stroke(T.line, 1, 0.3)
+				st.Parent = box
+				box.Parent = r
+				box.Focused:Connect(function() tw(st, 0.2, { Color = accent, Transparency = 0 }) end)
+				box.FocusLost:Connect(function(enter)
+					tw(st, 0.2, { Color = T.line, Transparency = 0.3 })
+					setFlag(o, box.Text)
+					fire(o.Callback, box.Text, enter)
+				end)
+				local obj = {}
+				function obj:Set(t) box.Text = t setFlag(o, t) end
+				function obj:Get() return box.Text end
+				reg(o, box.Text, function(v) obj:Set(v) end)
+				return obj
+			end
+
+			function Sec:AddColorPicker(o)
+				local col = o.Default or accent
+				local h, s, v = col:ToHSV()
+				local open = false
+				local SVH = IS_MOBILE and 120 or 100
+				local HW = IS_MOBILE and 28 or 22
+				local r = row(RH, o.Name)
+				lbl({ Text = o.Name, Position = UDim2.fromOffset(14, 0), Size = UDim2.new(1, -70, 0, RH) }, r)
+				local sw = new("Frame", { Size = UDim2.fromOffset(36, 22), AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -12, 0, RH / 2), BackgroundColor3 = col, BorderSizePixel = 0 }, { corner(6), stroke(WHITE, 1, 0.6) })
+				sw.Parent = r
+				local head3 = new("TextButton", { Text = "", Size = UDim2.new(1, 0, 0, RH), BackgroundTransparency = 1, ZIndex = 5 })
+				head3.Parent = r
+
+				local svBox = new("Frame", { Position = UDim2.fromOffset(12, RH + 8), Size = UDim2.new(1, -(HW + 34), 0, SVH), BackgroundColor3 = Color3.fromHSV(h, 1, 1), BorderSizePixel = 0 }, { corner(8) })
+				local wh = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = WHITE, BorderSizePixel = 0 }, { corner(8) })
+				new("UIGradient", { Transparency = NumberSequence.new(0, 1) }).Parent = wh
+				wh.Parent = svBox
+				local bk = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(0, 0, 0), BorderSizePixel = 0 }, { corner(8) })
+				new("UIGradient", { Rotation = 90, Transparency = NumberSequence.new(1, 0) }).Parent = bk
+				bk.Parent = svBox
+				local svCur = new("Frame", { Size = UDim2.fromOffset(14, 14), AnchorPoint = Vector2.new(0.5, 0.5), BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 4 }, { corner(7), stroke(WHITE, 2, 0) })
+				svCur.Parent = svBox
+				svBox.Parent = r
+
+				local hueBar = new("Frame", { Position = UDim2.new(1, -(HW + 14), 0, RH + 8), Size = UDim2.fromOffset(HW, SVH), BackgroundColor3 = WHITE, BorderSizePixel = 0 }, { corner(8) })
+				local keys = {}
+				for i = 0, 6 do table.insert(keys, ColorSequenceKeypoint.new(i / 6, Color3.fromHSV(i == 6 and 0.999 or i / 6, 1, 1))) end
+				new("UIGradient", { Rotation = 90, Color = ColorSequence.new(keys) }).Parent = hueBar
+				local hCur = new("Frame", { Size = UDim2.new(1, 6, 0, 4), AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0), BackgroundColor3 = WHITE, BorderSizePixel = 0, ZIndex = 4 }, { corner(2), stroke(Color3.new(0, 0, 0), 1, 0.5) })
+				hCur.Parent = hueBar
+				hueBar.Parent = r
+
+				local obj = {}
+				local function refresh(silent)
+					col = Color3.fromHSV(h, s, v)
+					sw.BackgroundColor3 = col
+					svBox.BackgroundColor3 = Color3.fromHSV(h, 1, 1)
+					svCur.Position = UDim2.fromScale(s, 1 - v)
+					hCur.Position = UDim2.fromScale(0.5, h)
+					setFlag(o, col)
+					if not silent then fire(o.Callback, col) end
+				end
+				dragRegion(svBox, page, function(rx, ry) s, v = rx, 1 - ry refresh() end)
+				dragRegion(hueBar, page, function(_, ry) h = math.min(ry, 0.999) refresh() end)
+				head3.MouseButton1Click:Connect(function()
+					open = not open
+					tw(r, 0.3, { Size = UDim2.new(1, 0, 0, open and (RH + 16 + SVH) or RH) })
+				end)
+				function obj:Set(c) if typeof(c) == "Color3" then h, s, v = c:ToHSV() refresh() end end
+				function obj:Get() return col end
+				refresh(true)
+				reg(o, col, function(c) obj:Set(c) end)
+				return obj
+			end
+
+			return Sec
+		end
+
+		return Tab
+	end
+
+	------------------------------------------------ HAZIR AYARLAR SEKMESI
+	function Win:BuildSettings()
+		local tab = Win:AddTab("Settings", "⚙")
+		local ap = tab:AddSection("Appearance")
+		ap:AddDropdown({ Name = "Theme", Options = THEME_NAMES, Default = "Midnight", Flag = "_theme", Callback = function(n) Omega:SetTheme(n) end })
+		ap:AddDropdown({ Name = "Accent color", Options = PRESET_NAMES, Default = "Violet", Flag = "_accent", Callback = function(n)
+			rainbow = false
+			Omega:SetAccent(n)
+		end })
+		ap:AddToggle({ Name = "Rainbow accent", Flag = "_rainbow", Callback = function(on)
+			rainbow = on
+			if not on then Omega:SetAccent(PRESETS[Omega.Flags._accent or "Violet"]) end
+		end })
+		ap:AddSlider({ Name = "Menu scale", Min = 0.6, Max = 1.3, Default = 1, Increment = 0.05, Flag = "_scale", Callback = function(v) Win:SetScaleMul(v) end })
+		ap:AddToggle({ Name = "Background blur", Default = blurEnabled, Flag = "_blur", Callback = function(on) Win:SetBlur(on) end })
+		ap:AddToggle({ Name = "FPS / Ping HUD", Flag = "_hud", Callback = function(on) Win:SetHud(on) end })
+		if not IS_MOBILE then
+			ap:AddKeybind({ Name = "Menu key", Default = Win.ToggleKey, Flag = "_menukey", Changed = function(k) Win.ToggleKey = k end })
+		else
+			ap:AddParagraph("Mobile tips", "Tap — to minimize into the round button. Drag the round button or the top bar to move them. Use the − / + buttons on sliders for precise values.")
+		end
+
+		local cf = tab:AddSection("Config")
+		local nameBox = cf:AddTextBox({ Name = "Config name", Default = "default", Placeholder = "name" })
+		local canFile = type(writefile) == "function" and type(readfile) == "function"
+		local function path() return "AuroraOmega_" .. (nameBox:Get() ~= "" and nameBox:Get() or "default") .. ".json" end
+		cf:AddButton({ Name = "Save config", Callback = function()
+			if not canFile then return Omega:Notify({ Title = "Config", Content = "Executor has no file API.", Type = "error" }) end
+			local data = {}
+			for k, val in pairs(Omega.Flags) do
+				if typeof(val) == "Color3" then data[k] = { __c = { val.R, val.G, val.B } } else data[k] = val end
+			end
+			local ok = pcall(function() writefile(path(), HttpService:JSONEncode(data)) end)
+			Omega:Notify({ Title = "Config", Content = ok and ("Saved: " .. nameBox:Get()) or "Save failed", Type = ok and "success" or "error" })
+		end })
+		cf:AddButton({ Name = "Load config", Callback = function()
+			if not canFile then return Omega:Notify({ Title = "Config", Content = "Executor has no file API.", Type = "error" }) end
+			local ok, data = pcall(function() return HttpService:JSONDecode(readfile(path())) end)
+			if not ok or type(data) ~= "table" then
+				return Omega:Notify({ Title = "Config", Content = "Config not found", Type = "warn" })
+			end
+			for k, val in pairs(data) do
+				if type(val) == "table" and val.__c then val = Color3.new(val.__c[1], val.__c[2], val.__c[3]) end
+				if Omega._setters[k] then pcall(Omega._setters[k], val) end
+			end
+			Omega:Notify({ Title = "Config", Content = "Loaded: " .. nameBox:Get(), Type = "success" })
+		end })
+
+		local mi = tab:AddSection("Menu")
+		mi:AddButton({ Name = "Unload UI", Callback = function() Win:Close(false) task.delay(0.35, function() Omega:Unload() end) end })
+		return tab
+	end
+
+	------------------------------------------------ ACILIS SPLASH
+	function Win:Intro(steps)
+		steps = steps or { "Loading modules", "Building interface", "Syncing theme", "Ready" }
+		local baseScale = math.clamp(fit() + 0.15, 0.6, 1)
+		local sCard = new("CanvasGroup", {
+			AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(330, 230),
+			BackgroundColor3 = T.bg0, BorderSizePixel = 0, GroupTransparency = 1,
+		}, { corner(22), stroke(accent, 1.6, 0.2) })
+		new("UIGradient", { Rotation = 90, Color = ColorSequence.new(T.bg0, T.bg1) }).Parent = sCard
+		local sScale = new("UIScale", { Scale = baseScale * 0.8 })
+		sScale.Parent = sCard
+
+		local ring = new("Frame", { Size = UDim2.fromOffset(84, 84), AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 22), BackgroundTransparency = 1 }, { corner(42) })
+		local rs = stroke(WHITE, 4, 0)
+		local rg = accentGrad(rs, 0)
+		rs.Parent = ring
+		ring.Parent = sCard
+		local core = new("Frame", { Size = UDim2.fromOffset(50, 50), AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), BackgroundColor3 = WHITE, BorderSizePixel = 0 }, { corner(16) })
+		accentGrad(core, 45)
+		core.Parent = ring
+		lbl({ Text = "A", Font = Enum.Font.GothamBlack, TextSize = 26, TextColor3 = WHITE, TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.fromScale(1, 1) }, core)
+
+		local full = string.upper(opts.Title or "Aurora") .. " OMEGA"
+		local tl = lbl({ Text = "", Font = Enum.Font.GothamBlack, TextSize = 18, TextColor3 = WHITE, TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.new(1, 0, 0, 24), Position = UDim2.fromOffset(0, 120) }, sCard)
+		accentGrad(tl, 0)
+		local sl = lbl({ Text = steps[1], TextSize = 11, TextColor3 = T.sub, TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.new(1, 0, 0, 14), Position = UDim2.fromOffset(0, 150) }, sCard)
+		local pbg = new("Frame", { Size = UDim2.new(1, -60, 0, 6), Position = UDim2.fromOffset(30, 182), BackgroundColor3 = T.row2, BorderSizePixel = 0 }, { corner(3) })
+		local pf = new("Frame", { Size = UDim2.fromScale(0, 1), BackgroundColor3 = WHITE, BorderSizePixel = 0 }, { corner(3) })
+		accentGrad(pf, 0)
+		pf.Parent = pbg
+		pbg.Parent = sCard
+		sCard.Parent = gui
+
+		local spin = function() rg.Rotation = (os.clock() * 280) % 360 end
+		ticks[#ticks + 1] = spin
+
+		task.spawn(function()
+			tw(sCard, 0.4, { GroupTransparency = 0 })
+			tw(sScale, 0.6, { Scale = baseScale }, Enum.EasingStyle.Back)
+			for i = 1, #full do
+				tl.Text = string.sub(full, 1, i)
+				task.wait(0.045)
+			end
+			for i, step in ipairs(steps) do
+				sl.Text = step
+				tw(pf, 0.45, { Size = UDim2.fromScale(i / #steps, 1) }, Enum.EasingStyle.Quad)
+				task.wait(0.5)
+			end
+			task.wait(0.2)
+			tw(sScale, 0.35, { Scale = baseScale * 1.15 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+			tw(sCard, 0.35, { GroupTransparency = 1 })
+			task.wait(0.38)
+			local ix = table.find(ticks, spin)
+			if ix then table.remove(ticks, ix) end
+			sCard:Destroy()
+			Win:Open()
+			Omega:Notify({ Title = "Aurora Omega", Content = IS_MOBILE and "UI loaded. Tap — to minimize." or ("UI loaded. Toggle key: " .. Win.ToggleKey.Name), Type = "success" })
+		end)
+	end
+
+	if getgenv then pcall(function() getgenv().OmegaUI = Omega end) end
+	Omega.Window = Win
+	return Win
+end
+
+------------------------------------------------------------------ DEMO (kendi sekmelerinle degistir)
+local Win = Omega:CreateWindow({ Title = "Aurora", Subtitle = "Omega UI  •  v" .. Omega.Version })
+
+-- HOME
+local Home = Win:AddTab("Home", "⌂")
+local dash = Home:AddSection("Dashboard")
+do
+	local card = dash:AddCard(94)
+	local av = new("ImageLabel", { Size = UDim2.fromOffset(64, 64), Position = UDim2.fromOffset(14, 15), BackgroundColor3 = T.bg1, BorderSizePixel = 0, Image = "" }, { corner(32), stroke(accent, 2, 0) })
+	local avs = av:FindFirstChildOfClass("UIStroke")
+	onAccent(function(a) avs.Color = a end)
+	av.Parent = card
+	task.spawn(function()
+		local ok, img = pcall(function() return Players:GetUserThumbnailAsync(lp.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size150x150) end)
+		if ok and img and av.Parent then av.Image = img end
+	end)
+	lbl({ Text = "Welcome, " .. lp.DisplayName, Font = Enum.Font.GothamBold, TextSize = 15, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.new(1, -100, 0, 20), Position = UDim2.fromOffset(92, 16) }, card)
+	local stat = lbl({ Text = "FPS: --   Ping: --", TextSize = 12, TextColor3 = T.sub, Size = UDim2.new(1, -100, 0, 16), Position = UDim2.fromOffset(92, 40) }, card)
+	local sess = lbl({ Text = "Session: 00:00", TextSize = 12, TextColor3 = T.dim, Size = UDim2.new(1, -100, 0, 16), Position = UDim2.fromOffset(92, 58) }, card)
+	local t0 = os.clock()
+	table.insert(statHooks, function(s)
+		stat.Text = string.format("FPS: %d   Ping: %d ms", s.fps, s.ping)
+		local el = math.floor(os.clock() - t0)
+		sess.Text = string.format("Session: %02d:%02d", el // 60, el % 60)
+	end)
+end
+local about = Home:AddSection("Info")
+about:AddParagraph("Aurora Omega UI", "Animated, mobile-friendly Roblox UI library. Use the search box at the top of every page to filter features.")
+about:AddButton({ Name = "Show test notification", Callback = function()
+	Omega:Notify({ Title = "Hello!", Content = "This is a test notification with a progress bar.", Type = "success", Duration = 4 })
+end })
+
+-- TOOLS (sadece kendi istemcini etkileyen kozmetik / kullanisli ayarlar)
+local Tools = Win:AddTab("Tools", "✦")
+local cam = Tools:AddSection("Camera & Lighting")
+cam:AddSlider({ Name = "Field of view", Min = 40, Max = 120, Default = (workspace.CurrentCamera and workspace.CurrentCamera.FieldOfView) or 70, Flag = "fov", Callback = function(v)
+	if workspace.CurrentCamera then workspace.CurrentCamera.FieldOfView = v end
+end })
+cam:AddSlider({ Name = "Time of day", Min = 0, Max = 24, Default = Lighting.ClockTime, Increment = 0.5, Flag = "clock", Callback = function(v) Lighting.ClockTime = v end })
+local origLight = { Brightness = Lighting.Brightness, FogEnd = Lighting.FogEnd, GlobalShadows = Lighting.GlobalShadows, Ambient = Lighting.Ambient }
+cam:AddToggle({ Name = "Fullbright", Flag = "fullbright", Callback = function(on)
+	if on then
+		Lighting.Brightness, Lighting.GlobalShadows, Lighting.Ambient = 2, false, rgb(178, 178, 178)
+	else
+		Lighting.Brightness, Lighting.GlobalShadows, Lighting.Ambient = origLight.Brightness, origLight.GlobalShadows, origLight.Ambient
+	end
+end })
+cam:AddToggle({ Name = "Remove fog", Flag = "nofog", Callback = function(on)
+	Lighting.FogEnd = on and 1e6 or origLight.FogEnd
+end })
+
+local util = Tools:AddSection("Utility")
+local afkConn
+util:AddToggle({ Name = "Anti-AFK", Flag = "antiafk", Callback = function(on)
+	if afkConn then afkConn:Disconnect() afkConn = nil end
+	if on then
+		local VU = game:GetService("VirtualUser")
+		afkConn = lp.Idled:Connect(function()
+			pcall(function()
+				VU:CaptureController()
+				VU:ClickButton2(Vector2.new())
+			end)
+		end)
+	end
+end })
+table.insert(cleanups, function() if afkConn then afkConn:Disconnect() end end)
+util:AddSlider({ Name = "FPS cap", Min = 30, Max = 360, Default = 60, Increment = 10, Flag = "fpscap", Callback = function(v)
+	if type(setfpscap) == "function" then pcall(setfpscap, v) end
+end })
+cam:AddDivider("reset")
+cam:AddButton({ Name = "Reset visuals", Callback = function()
+	Lighting.Brightness, Lighting.GlobalShadows, Lighting.Ambient, Lighting.FogEnd = origLight.Brightness, origLight.GlobalShadows, origLight.Ambient, origLight.FogEnd
+	Omega:Notify({ Title = "Visuals", Content = "Lighting restored.", Type = "success" })
+end })
+
+-- SERVER
+local Srv = Win:AddTab("Server", "☰")
+local info = Srv:AddSection("Server Info")
+local plLbl = info:AddLabel("Players: ...")
+info:AddLabel("Place ID: " .. tostring(game.PlaceId))
+info:AddLabel("Job ID: " .. string.sub(game.JobId ~= "" and game.JobId or "studio", 1, 22) .. "...")
+local function refreshPl() plLbl:Set(string.format("Players: %d / %d", #Players:GetPlayers(), Players.MaxPlayers)) end
+refreshPl()
+bind(Players.PlayerAdded, refreshPl)
+bind(Players.PlayerRemoving, function() task.defer(refreshPl) end)
+local act = Srv:AddSection("Actions")
+act:AddButton({ Name = "Copy Job ID", Callback = function()
+	local clip = setclipboard or toclipboard
+	if clip then
+		pcall(clip, game.JobId)
+		Omega:Notify({ Title = "Server", Content = "Job ID copied.", Type = "success" })
+	else
+		Omega:Notify({ Title = "Server", Content = "Executor has no clipboard API.", Type = "warn" })
+	end
+end })
+act:AddButton({ Name = "Rejoin this server", Callback = function()
+	Omega:Notify({ Title = "Server", Content = "Reconnecting...", Duration = 3 })
+	local ok = pcall(function() TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, lp) end)
+	if not ok then pcall(function() TeleportService:Teleport(game.PlaceId, lp) end) end
+end })
+
+-- COMPONENTS
+local Comp = Win:AddTab("Components", "◆")
+local s1 = Comp:AddSection("Basic")
+s1:AddToggle({ Name = "Example toggle", Flag = "demo_toggle", Callback = function(v) print("toggle:", v) end })
+s1:AddSlider({ Name = "Example slider", Min = 0, Max = 100, Default = 40, Suffix = "%", Flag = "demo_slider", Callback = function(v) print("slider:", v) end })
+s1:AddDropdown({ Name = "Example dropdown", Options = { "Alpha", "Beta", "Gamma", "Delta" }, Flag = "demo_drop", Callback = function(v) print("dropdown:", v) end })
+s1:AddMultiDropdown({ Name = "Multi select", Options = { "One", "Two", "Three", "Four" }, Default = { "One" }, Flag = "demo_multi", Callback = function(t) print("multi:", table.concat(t, ",")) end })
+local s2 = Comp:AddSection("Inputs")
+s2:AddKeybind({ Name = "Example keybind", Default = Enum.KeyCode.G, Flag = "demo_key", Callback = function() Omega:Notify({ Title = "Keybind", Content = "Key pressed!" }) end })
+s2:AddTextBox({ Name = "Example textbox", Placeholder = "type here", Flag = "demo_text", Callback = function(t) print("text:", t) end })
+s2:AddColorPicker({ Name = "Example color", Default = rgb(255, 90, 140), Flag = "demo_color", Callback = function(c) print("color:", c) end })
+local s3 = Comp:AddSection("Display")
+local prog = s3:AddProgress({ Name = "Example progress", Default = 35 })
+s3:AddDivider("actions")
+s3:AddButton({ Name = "Randomize progress", Callback = function() prog:Set(math.random(0, 100)) end })
+
+Win:BuildSettings()
+Win:Intro()
+
+return Omega
