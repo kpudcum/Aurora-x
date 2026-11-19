@@ -3,7 +3,7 @@
   - Mobil cihazlar icin ekran olceklendirmesi ve baslangic boyutu optimize edildi.
 ]]
 
-print("[AuraX Hub] script basladi")
+print("[Aurora X] script basladi")
 
 local __ok, __err = xpcall(function()
 
@@ -87,7 +87,13 @@ function Aurora:SetAccent(c, save)
 	if type(c) == "string" then c = ACCENTS[c] end
 	if typeof(c) ~= "Color3" then return end
 	accent, accent2 = c, shift(c)
-	if save then savedAccent = c end
+	if save then
+		savedAccent = c
+		if isRainbowAccent then
+			isRainbowAccent = false
+			if Aurora.RainbowOff then task.spawn(Aurora.RainbowOff) end
+		end
+	end
 	for _, fn in ipairs(hooks) do fn(accent, accent2) end
 end
 
@@ -215,10 +221,11 @@ local function label(p)
 	p.TextSize = p.TextSize or 13
 	p.TextXAlignment = p.TextXAlignment or Enum.TextXAlignment.Left
 	local l = new("TextLabel", p)
-	onThemeChange(function(k, c)
-		if k == "text" and (p.TextColor3 == T.text or p.TextColor3 == nil) then l.TextColor3 = c end
-		if (k == "sub" or k == "dim") and (p.TextColor3 == T.sub or p.TextColor3 == T.dim) then l.TextColor3 = c end
-	end)
+	-- varsayilan tema rengini kullanan yazilar, arka plan/tema degisince yeniden boyanir
+	local role = (p.TextColor3 == T.text and "text") or (p.TextColor3 == T.sub and "sub") or (p.TextColor3 == T.dim and "dim") or nil
+	if role then
+		onThemeChange(function(k, c) if k == role then l.TextColor3 = c end end)
+	end
 	return l
 end
 local function accentGrad(parent, rot)
@@ -728,7 +735,7 @@ function Aurora:CreateWindow(titleText, subtitle)
 	-- Sekme simgeleri: emoji/font yok, tamamen Frame ile cizilir ve tema/vurgu rengine uyar.
 	-- Sekme adina gore secilir (adi icinde anahtar kelime gecenler de eslesir).
 	local ICON_KEYS = {
-		{ "farm", "farm" }, { "rebirth", "rebirth" }, { "zone", "zone" }, { "ganimet", "loot" }, { "pvp", "pvp" }, { "ara\195\167", "tools" },
+		{ "farm", "farm" }, { "rebirth", "rebirth" }, { "zone", "zone" }, { "loot", "loot" }, { "combat", "pvp" }, { "pvp", "pvp" }, { "utility", "tools" },
 		{ "home", "home" }, { "defense", "defense" }, { "fun", "fun" }, { "ball", "ball" }, { "player", "player" }, { "server", "server" }, { "visual", "visuals" }, { "esp", "esp" },
 		{ "aim", "aimbot" }, { "hit", "hitbox" }, { "setting", "settings" }, { "config", "settings" }, { "teleport", "teleport" },
 	}
@@ -1014,7 +1021,7 @@ function Aurora:CreateWindow(titleText, subtitle)
 				obj.Set = function(text, c)
 					text = tostring(text)
 					if l.Text ~= text then l.Text = text end
-					l.TextColor3 = c or T.sub
+					l.TextColor3 = T.sub
 				end
 				return obj
 			end
@@ -1035,7 +1042,7 @@ function Aurora:CreateWindow(titleText, subtitle)
 						frac = math.clamp(tonumber(frac) or 0, 0, 1)
 						tween(fill, 0.15, { Size = UDim2.fromScale(frac, 1) })
 						pct.Text = text and tostring(text) or string.format("%d%%", math.floor(frac * 100 + 0.5))
-						pct.TextColor3 = c or T.sub
+						pct.TextColor3 = T.sub
 					end,
 				}
 			end
@@ -1053,9 +1060,10 @@ function Aurora:CreateWindow(titleText, subtitle)
 				btn.Parent = r
 				local function paintBtn() btn.BackgroundColor3 = active and accent or T.row2 end
 				onAccent(paintBtn)
+				onThemeChange(function(k) if k == "row2" then paintBtn() end end)
 				btn.MouseButton1Click:Connect(function() if cb then task.spawn(cb) end end)
 				return {
-					SetStatus = function(text, c) st.Text = tostring(text) st.TextColor3 = c or T.sub end,
+					SetStatus = function(text) st.Text = tostring(text) st.TextColor3 = (text == "OPEN") and T.text or T.dim end,
 					SetSub = function(text) subL.Text = tostring(text) end,
 					SetActive = function(on) active = on and true or false paintBtn() end,
 				}
@@ -1172,6 +1180,7 @@ function Aurora:CreateWindow(titleText, subtitle)
 					tween(knob, d, { Position = state and UDim2.fromOffset(23, 3) or UDim2.fromOffset(3, 3) }, Enum.EasingStyle.Back)
 				end
 				onAccent(function() paint(false) end)
+				onThemeChange(function(k) if k == "row2" then paint(false) end end)
 				local locked = false
 				pill.MouseButton1Click:Connect(function()
 					if locked then return end -- kilitliyken tiklama hicbir sey yapmaz (animasyon da yok)
@@ -2692,7 +2701,7 @@ if not LocalPlayer then
     return
 end
 
-local CONFIG_FILE = "AuraX_Hub_Config.json"
+local CONFIG_FILE = "AuroraX_Hub_Config.json"
 local VERSION = "1.0"
 
 -- ================================================================
@@ -2710,7 +2719,7 @@ end
 
 local function log(...)
     local values = { ... }
-    local text = "[AuraX Hub]"
+    local text = "[Aurora X]"
     for _, value in ipairs(values) do
         text = text .. " " .. tostring(value)
     end
@@ -2916,24 +2925,27 @@ local DEFAULTS = {
     -- Farm
     AutoFarmAura = false,
     AutoFarmEnergy = false,
-    SmartFarm = true,
+    SmartFarm = false,
     EnergyThreshold = 25,
     SkillEnergyReserve = 0,
-    AutoRebirth = true,
-    AutoForm = true,
-    AutoZone = true,
-    ZoneAutoUnlock = true,
+    AutoRebirth = false,
+    AutoForm = false,
+    AutoZone = false,
+    ZoneAutoUnlock = false,
     ZoneAutoEnter = false,
     AutoBoss = false,
     BossTarget = "Nearest",
     BossTP = true,
     BossSkills = true,
+    BossAttackTime = 3,
+    BossFleeTime = 2.5,
+    BossFleeDistance = 240,
+    BossRespawnWait = 20,
     -- Ganimet
-    AutoCollect = true,
+    AutoCollect = false,
     AutoPrompt = false,
     PromptRange = 14,
-    PromptFilter = "FormQuest,Ball,Dragon,Collect,Open",
-    AutoQuest = true,
+    AutoQuest = false,
     AutoWish = false,
     WishChoice = "Auto",
     AutoBoost = false,
@@ -2941,26 +2953,40 @@ local DEFAULTS = {
     AutoCraft = "Off",
     -- PvP
     AutoPvP = false,
-    AutoPvPSkills = true,
+    AutoPvPSkills = false,
     PvPSkill = "Auto",
     PvPRange = 300,
     PvPLead = 0.15,
     AutoFlee = false,
     FleeHealth = 25,
     -- ESP
-    ESPPlayers = false,
     ESPBosses = false,
     ESPDrops = false,
     ESPBalls = false,
     ESPMaxDistance = 1500,
     ESPTracers = false,
+    ESPHighlight = true,
+    ESPNames = true,
+    ESPHealth = true,
+    ESPFill = 0.8,
+    ESPTextSize = 12,
+    ESPTracerOrigin = "Bottom",
+    BossFlee = false,
+    BossEnergy = false,
+    BossFleeHealth = 40,
+    BossDistance = 90,
+    PromptQuest = true,
+    PromptBalls = true,
+    PromptChests = true,
+    SpeedBoost = false,
+    HUDScale = 1,
     -- Araclar
-    AntiAFK = true,
-    HUD = true,
+    AntiAFK = false,
+    HUD = false,
     Notifications = true,
-    MobileButton = true,
+    MobileButton = false,
     WalkSpeed = 16,
-    AutoGear = true,
+    AutoGear = false,
     GearStat = "Aura",
     -- Ayarlar
     Keybind = true,
@@ -3397,7 +3423,7 @@ local function castSkillAt(name, position)
     if ok then
         local meta = SKILL_META[name]
         local cooldown = remote:GetAttribute("Cooldown") or (meta and meta.cooldown) or 0.4
-        LocalPlayer:SetAttribute("AuraX_LastCast", name)
+        LocalPlayer:SetAttribute("AuroraX_LastCast", name)
     end
     return ok
 end
@@ -3730,38 +3756,38 @@ notify = function(text, kind, duration)
     end
     local k = (kind == "success" or kind == "warn" or kind == "error") and kind or nil
     pcall(function()
-        Aurora:Notify("Aura X", tostring(text), duration or 4, k)
+        Aurora:Notify("Aurora X", tostring(text), duration or 4, k)
     end)
 end
 
 local UI_OPTIONS = {
     BOSS = {
-        { label = "En Yakın", value = "Nearest" },
+        { label = "Nearest", value = "Nearest" },
         { label = "Goku", value = "Goku" },
         { label = "Vegeta", value = "Vegeta" },
         { label = "Broly", value = "Broly" },
     },
     WISH = {
-        { label = "Otomatik", value = "Auto" },
-        { label = "Ekstra Rebirth", value = "Rebirth" },
-        { label = "Enerji", value = "Energy" },
+        { label = "Auto", value = "Auto" },
+        { label = "Extra Rebirth", value = "Rebirth" },
+        { label = "Energy", value = "Energy" },
         { label = "Aura", value = "Aura" },
     },
     CRAFT = {
-        { label = "Kapalı", value = "Off" },
-        { label = "Potara Küpe", value = "Potara" },
-        { label = "Namekian Pelerin", value = "NamekianCape" },
+        { label = "Off", value = "Off" },
+        { label = "Potara Earrings", value = "Potara" },
+        { label = "Namekian Cape", value = "NamekianCape" },
     },
     SKILL = {
-        { label = "Otomatik", value = "Auto" },
+        { label = "Auto", value = "Auto" },
         { label = "Ki Burst", value = "KiBurst" },
         { label = "Kamehameha", value = "Kamehameha" },
         { label = "Spirit Bomb", value = "SpiritBomb" },
     },
     GEAR = {
         { label = "Aura", value = "Aura" },
-        { label = "Enerji", value = "Energy" },
-        { label = "Dengeli", value = "Balanced" },
+        { label = "Energy", value = "Energy" },
+        { label = "Balanced", value = "Balanced" },
     },
 }
 
@@ -3771,7 +3797,7 @@ local function runCallback(fn, ...)
     end
     local ok, err = pcall(fn, ...)
     if not ok then
-        notify("Ayar hatası: " .. tostring(err), "error", 5)
+        notify("Setting error: " .. tostring(err), "error", 5)
     end
 end
 
@@ -3870,9 +3896,8 @@ end
 
 local function applyWalkSpeed()
     local humanoid = Game.getHumanoid()
-    local speed = tonumber(Config.WalkSpeed)
-    if humanoid and speed and speed ~= 16 then
-        humanoid.WalkSpeed = speed
+    if humanoid then
+        humanoid.WalkSpeed = Config.SpeedBoost == true and (tonumber(Config.WalkSpeed) or 16) or 16
     end
 end
 
@@ -3881,40 +3906,416 @@ end
 -- ================================================================
 local Farm = Window:AddTab("Farm", "o")
 
-local fA = Farm:AddSection("Aura ve Enerji")
-fA:AddLabel("Aura farmı enerji tüketir. Akıllı farm ikisini dengeler.")
+
+
+local fS = Farm:AddSection("Farm Status")
+Refs.farmProgress = fS:AddProgress("Next Rebirth").Set
+makeInfo(fS, "farmAura", "Aura:")
+makeInfo(fS, "farmEnergy", "Energy:")
+makeInfo(fS, "farmForce", "Aura/s:")
+makeInfo(fS, "farmStatus", "Status:")
+makeInfo(fS, "farmEta", "Rebirth ETA:")
+
+-- ================================================================
+-- REBIRTH / FORM YARDIMCILARI
+-- ================================================================
+
+local function getRebirths()
+    return Game.readNumber("Rebirths") or 0
+end
+
+local function getExtraRebirths()
+    local value = LocalPlayer:GetAttribute("WishExtraRebirths")
+    if type(value) == "number" and value == value and value >= 0 then
+        return math.floor(value)
+    end
+    return 0
+end
+
+local function getNormalRebirths()
+    return math.max(0, math.floor(getRebirths() - getExtraRebirths()))
+end
+
+local function nextRebirthNeedsSSJ1()
+    return getNormalRebirths() >= 130
+end
+
+local function getCurrentForm()
+    local form = LocalPlayer:GetAttribute("CurrentForm")
+    if type(form) == "string" and form ~= "" then
+        return form
+    end
+    return "Base"
+end
+
+local function equipForm(form)
+    return Remote.inventoryAction("EquipForm", form)
+end
+
+local function ensureRequiredForm()
+    if nextRebirthNeedsSSJ1() and getCurrentForm() ~= "SSJ1" then
+        return equipForm("SSJ1")
+    end
+    return false
+end
+
+-- ================================================================
+-- ZONE YARDIMCILARI
+-- ================================================================
+
+local function isZoneUnlocked(name)
+    local store = Game.getStore()
+    local unlocked = store and store:FindFirstChild("UnlockedZones")
+    if not unlocked then
+        return false
+    end
+    local flag = unlocked:FindFirstChild(name)
+    return flag and flag:IsA("BoolValue") and flag.Value == true
+end
+
+local function getCurrentZoneName()
+    return Game.readString("CurrentZone") or "?"
+end
+
+local function getZoneFolder(name)
+    local zones = workspace:FindFirstChild("Zones")
+    return zones and zones:FindFirstChild(name) or nil
+end
+
+local function getZonePosition(name)
+    local zone = getZoneFolder(name)
+    if not zone then
+        return nil
+    end
+    for _, childName in ipairs({ "TouchPart", "Floor" }) do
+        local child = zone:FindFirstChild(childName)
+        if child then
+            if child:IsA("BasePart") then
+                return child.Position
+            end
+            local part = child:FindFirstChildWhichIsA("BasePart", true)
+            if part then
+                return part.Position
+            end
+        end
+    end
+    local part = zone:FindFirstChildWhichIsA("BasePart", true)
+    if part then
+        return part.Position
+    end
+    if zone:IsA("Model") then
+        local ok, pivot = pcall(function()
+            return zone:GetPivot().Position
+        end)
+        if ok then
+            return pivot
+        end
+    end
+    return nil
+end
+
+local function teleportToZone(name)
+    local position = getZonePosition(name)
+    if not position then
+        return false
+    end
+    return Game.teleportTo(position)
+end
+
+-- ================================================================
+-- ENVANTER / GANIMET DURUMU
+-- ================================================================
+
+local inventoryState = nil
+local drops = {}
+local pendingQuestAction = nil
+local lastQuestAction = 0
+local currentWish = nil
+local lastWishChoose = 0
+
+local function addDrop(data)
+    if type(data) ~= "table" or data.Id == nil then
+        return
+    end
+    local serverNow = workspace:GetServerTimeNow()
+    local expires = data.Expires
+    if type(expires) == "number" and expires <= serverNow then
+        return
+    end
+    drops[data.Id] = {
+        id = data.Id,
+        name = tostring(data.Name or "Ganimet"),
+        visual = tostring(data.Visual or ""),
+        position = typeof(data.Position) == "Vector3" and data.Position or nil,
+        expires = type(expires) == "number" and expires or nil,
+    }
+end
+
+local function itemQuantity(itemId)
+    if inventoryState and type(inventoryState.Items) == "table" then
+        return tonumber(inventoryState.Items[itemId]) or 0
+    end
+    return 0
+end
+
+local function isItemEquipped(itemId)
+    if inventoryState and type(inventoryState.Equipped) == "table" then
+        for _, equipped in ipairs(inventoryState.Equipped) do
+            if equipped == itemId then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+local function isItemCrafted(itemId)
+    if inventoryState and type(inventoryState.Crafted) == "table" then
+        return inventoryState.Crafted[itemId] == true
+    end
+    return false
+end
+
+local function ownsForm(formId)
+    if formId == "Base" then
+        return true
+    end
+    if inventoryState and type(inventoryState.Forms) == "table" then
+        return inventoryState.Forms[formId] == true
+    end
+    return false
+end
+
+-- ================================================================
+-- AURA X  ->  AURORA ARAYUZ KATMANI
+-- ================================================================
+local Theme = setmetatable({}, { __index = function(_, k)
+    if k == "Good" then return T.ok
+    elseif k == "Bad" then return T.err
+    elseif k == "Warn" then return T.warn
+    elseif k == "Sub" then return T.sub
+    elseif k == "Text" then return T.text
+    elseif k == "Accent" then return accent
+    elseif k == "Accent2" then return accent2
+    elseif k == "Track" then return T.row2
+    elseif k == "Panel" then return T.card
+    elseif k == "Panel2" then return T.row
+    elseif k == "Stroke" then return T.line
+    elseif k == "Bg" then return T.bg0
+    end
+    return nil
+end })
+
+local Refs = { labels = {}, zoneRows = {}, hud = {}, toggles = {}, refreshers = {} }
+local Actions = {}
+local hudFrame
+local syncing = false
+local unload
+local notify
+local setLabel, setHud, refreshToggle, refreshAllWidgets
+
+setLabel = function(key, text, color)
+    local l = Refs.labels[key]
+    if l then
+        l.Set(text, color)
+    end
+end
+
+setHud = function(key, text, color)
+    local l = Refs.hud[key]
+    if l and l.Parent then
+        l.Text = text
+        if color then
+            l.TextColor3 = color
+        end
+    end
+end
+
+refreshToggle = function(key)
+    local obj = Refs.toggles[key]
+    if obj and obj.Get() ~= (Config[key] == true) then
+        syncing = true
+        pcall(obj.Set, Config[key] == true)
+        syncing = false
+    end
+end
+
+refreshAllWidgets = function()
+    for _, callback in ipairs(Refs.refreshers) do
+        pcall(callback)
+    end
+end
+
+notify = function(text, kind, duration)
+    if Config.Notifications == false or unloaded then
+        return
+    end
+    local k = (kind == "success" or kind == "warn" or kind == "error") and kind or nil
+    pcall(function()
+        Aurora:Notify("Aurora X", tostring(text), duration or 4, k)
+    end)
+end
+
+local UI_OPTIONS = {
+    BOSS = {
+        { label = "Nearest", value = "Nearest" },
+        { label = "Goku", value = "Goku" },
+        { label = "Vegeta", value = "Vegeta" },
+        { label = "Broly", value = "Broly" },
+    },
+    WISH = {
+        { label = "Auto", value = "Auto" },
+        { label = "Extra Rebirth", value = "Rebirth" },
+        { label = "Energy", value = "Energy" },
+        { label = "Aura", value = "Aura" },
+    },
+    CRAFT = {
+        { label = "Off", value = "Off" },
+        { label = "Potara Earrings", value = "Potara" },
+        { label = "Namekian Cape", value = "NamekianCape" },
+    },
+    SKILL = {
+        { label = "Auto", value = "Auto" },
+        { label = "Ki Burst", value = "KiBurst" },
+        { label = "Kamehameha", value = "Kamehameha" },
+        { label = "Spirit Bomb", value = "SpiritBomb" },
+    },
+    GEAR = {
+        { label = "Aura", value = "Aura" },
+        { label = "Energy", value = "Energy" },
+        { label = "Balanced", value = "Balanced" },
+    },
+}
+
+local function runCallback(fn, ...)
+    if not fn then
+        return
+    end
+    local ok, err = pcall(fn, ...)
+    if not ok then
+        notify("Setting error: " .. tostring(err), "error", 5)
+    end
+end
+
+-- Config'e bagli kontrol yardimcilari (Aurora widget'larini sarar)
+local function makeToggle(sec, text, key, onChange, runOnSync)
+    local obj
+    obj = sec:AddToggle(text, Config[key] == true, function(on)
+        if syncing then
+            if runOnSync then
+                runCallback(onChange, on, true)
+            end
+            return
+        end
+        Config[key] = on
+        queueSave()
+        runCallback(onChange, on, false)
+    end)
+    Refs.toggles[key] = obj
+    table.insert(Refs.refreshers, function()
+        syncing = true
+        pcall(obj.Set, Config[key] == true)
+        syncing = false
+    end)
+    return obj
+end
+
+local function makeSlider(sec, text, key, minV, maxV, step, onChange)
+    local obj
+    local start = math.clamp(tonumber(Config[key]) or minV, minV, maxV)
+    obj = sec:AddSlider(text, minV, maxV, start, function(v)
+        if syncing then
+            return
+        end
+        v = math.floor((tonumber(v) or minV) * 1000 + 0.5) / 1000
+        if v == Config[key] then
+            return
+        end
+        Config[key] = v
+        queueSave()
+        runCallback(onChange, v)
+    end, step)
+    table.insert(Refs.refreshers, function()
+        syncing = true
+        pcall(obj.Set, math.clamp(tonumber(Config[key]) or minV, minV, maxV))
+        syncing = false
+    end)
+    return obj
+end
+
+local function makeDropdown(sec, text, key, options, onChange)
+    local labels, toLabel, toValue = {}, {}, {}
+    for _, o in ipairs(options) do
+        labels[#labels + 1] = o.label
+        toLabel[o.value] = o.label
+        toValue[o.label] = o.value
+    end
+    local obj = sec:AddDropdown(text, labels, toLabel[Config[key]] or labels[1], function(lbl)
+        if syncing then
+            return
+        end
+        local v = toValue[lbl]
+        if v == nil then
+            return
+        end
+        Config[key] = v
+        queueSave()
+        runCallback(onChange, v)
+    end)
+    table.insert(Refs.refreshers, function()
+        syncing = true
+        pcall(obj.Set, toLabel[Config[key]] or labels[1])
+        syncing = false
+    end)
+    return obj
+end
+
+local function makeInfo(sec, key, text)
+    local obj = sec:AddInfo(text)
+    if key then
+        Refs.labels[key] = obj
+    end
+    return obj
+end
+
+local function makeButton(sec, text, fn)
+    sec:AddButton(text, fn)
+end
+
+local function setQuestGuiHidden(hidden)
+    local playerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+    local qgui = playerGui and playerGui:FindFirstChild("FormQuestUI")
+    if qgui and qgui:IsA("ScreenGui") then
+        qgui.Enabled = not hidden
+    end
+end
+
+local function applyWalkSpeed()
+    local humanoid = Game.getHumanoid()
+    if humanoid then
+        humanoid.WalkSpeed = Config.SpeedBoost == true and (tonumber(Config.WalkSpeed) or 16) or 16
+    end
+end
+
+-- ================================================================
+-- FARM
+-- ================================================================
+local Farm = Window:AddTab("Farm", "o")
+
+local fS = Farm:AddSection("Farm Status")
+Refs.farmProgress = fS:AddProgress("Next Rebirth").Set
+makeInfo(fS, "farmAura", "Aura:")
+makeInfo(fS, "farmEnergy", "Energy:")
+makeInfo(fS, "farmForce", "Aura/s:")
+makeInfo(fS, "farmStatus", "Status:")
+makeInfo(fS, "farmEta", "Rebirth ETA:")
+
+local fA = Farm:AddSection("Aura & Energy")
 makeToggle(fA, "Aura Farm", "AutoFarmAura")
-makeToggle(fA, "Enerji Farm", "AutoFarmEnergy")
-makeToggle(fA, "Akıllı Farm (Aura + Enerji)", "SmartFarm", function(on, isSync)
+makeToggle(fA, "Energy Farm", "AutoFarmEnergy")
+makeToggle(fA, "Smart Farm (Aura + Energy)", "SmartFarm", function(on, isSync)
     if on and not isSync then
-        notify("Akıllı farm açıldı: enerji azalınca enerji farmına geçer. (Manuel farm seçenekleri kapalı olmalı.)", "success", 6)
-    end
-end)
-makeSlider(fA, "Enerji Eşiği (%)", "EnergyThreshold", 5, 90, 5)
-makeSlider(fA, "Yetenek Enerji Rezervi", "SkillEnergyReserve", 0, 50, 1)
-
-local fS = Farm:AddSection("Durum")
-makeInfo(fS, "farmAura", "Aura: --")
-makeInfo(fS, "farmEnergy", "Enerji: --")
-makeInfo(fS, "farmForce", "Aura/sn: --")
-makeInfo(fS, "farmStatus", "Durum: Beklemede")
-makeInfo(fS, "farmEta", "Rebirth ETA: --")
-Refs.farmProgress = fS:AddProgress("Sonraki Rebirth").Set
-
-local fB = Farm:AddSection("Otomatik Boss")
-fB:AddLabel("Boss'a ışınlanır, yetenekleri basar, ganimeti toplar.")
-makeToggle(fB, "Otomatik Boss Farm", "AutoBoss", function(on, isSync)
-    if on and not isSync and not getSelectedBoss() then
-        notify("Şu an boss bulunamadı. Tekrar denenecek.", "warn")
-    end
-end)
-makeToggle(fB, "Boss'a Otomatik Işınlan", "BossTP")
-makeToggle(fB, "Boss'ta Yetenek Kullan", "BossSkills")
-makeDropdown(fB, "Boss Hedefi", "BossTarget", UI_OPTIONS.BOSS)
-makeInfo(fB, "bossStatus", "Boss: --")
-makeButton(fB, "Seçili Boss'a Işınlan", function()
-    if Actions.bossTeleport then
-        Actions.bossTeleport()
+        notify("Smart Farm on: switches to energy farming when energy runs low. (Turn off the manual farm toggles.)", "success", 6)
     end
 end)
 
@@ -3923,241 +4324,271 @@ end)
 -- ================================================================
 local Rebirth = Window:AddTab("Rebirth", "o")
 
-local rA = Rebirth:AddSection("Rebirth")
-rA:AddLabel("Aura yeterliyse otomatik rebirth. 131. rebirth'ten sonra SSJ1 gerekir.")
-Refs.rebirthProgress = rA:AddProgress("Rebirth İlerlemesi").Set
-makeInfo(rA, "rebirthCount", "Rebirth: --")
-makeInfo(rA, "rebirthCost", "Sonraki maliyet: --")
-makeInfo(rA, "rebirthForm", "Gereken form: --")
-makeInfo(rA, "rebirthEta", "Tahmini süre: --")
-makeInfo(rA, "rebirthMax", "Maksimum: " .. tostring(MAX_REBIRTHS))
-makeToggle(rA, "Otomatik Rebirth", "AutoRebirth")
-makeToggle(rA, "SSJ1'i Otomatik Kuşan", "AutoForm", function(on, isSync)
-    if on and not isSync then
-        notify("Form gereksinimi kontrol edilecek.", "info")
-    end
-end)
-makeButton(rA, "Şimdi Rebirth Yap", function()
+local rA = Rebirth:AddSection("Auto Rebirth")
+Refs.rebirthProgress = rA:AddProgress("Rebirth Progress").Set
+makeInfo(rA, "rebirthCount", "Rebirth:")
+makeInfo(rA, "rebirthCost", "Next cost:")
+makeInfo(rA, "rebirthForm", "Next rebirth form:")
+makeInfo(rA, "rebirthEta", "Estimated time:")
+makeInfo(rA, "rebirthMax", "Max:")
+makeToggle(rA, "Auto Rebirth", "AutoRebirth")
+makeButton(rA, "Rebirth Now", function()
     if Actions.rebirthNow then
         Actions.rebirthNow()
     end
 end)
-makeButton(rA, "SSJ1 Formunu Kuşan", function()
-    if equipForm("SSJ1") then
-        notify("SSJ1 kuşanma isteği gönderildi.", "info")
-    else
-        notify("Envanter hazır değil veya SSJ1 yok.", "warn")
+
+local rB = Rebirth:AddSection("SSJ1 Form")
+rB:AddInfo("After 130 normal rebirths the game requires the SSJ1 form to rebirth. Auto Equip SSJ1 switches to it for you when it is needed.")
+makeToggle(rB, "Auto Equip SSJ1", "AutoForm", function(on, isSync)
+    if on and not isSync then
+        notify("SSJ1 will be equipped automatically when a rebirth needs it.", "info")
     end
 end)
-
-local rB = Rebirth:AddSection("Form Bilgisi")
-rB:AddInfo("SSJ1, Whis/Kami görevleriyle açılır. Ganimet sekmesindeki otomasyonlar görevleri kabul eder.")
+makeButton(rB, "Equip SSJ1", function()
+    if equipForm("SSJ1") then
+        notify("SSJ1 equip request sent.", "info")
+    else
+        notify("Inventory not ready or SSJ1 not owned.", "warn")
+    end
+end)
 
 -- ================================================================
 -- ZONE
 -- ================================================================
 local ZoneTab = Window:AddTab("Zone", "o")
 
-local zA = ZoneTab:AddSection("Otomatik Zone")
-zA:AddLabel("Ucuza yükseltilebilen zone'u açar, en iyi açık zone'a ışınlanır.")
-makeToggle(zA, "Otomatik Zone", "AutoZone")
-makeToggle(zA, "Zone Kilidi Aç", "ZoneAutoUnlock")
-makeToggle(zA, "Açık Zone'a Gir", "ZoneAutoEnter")
-makeInfo(zA, "zoneCurrent", "Mevcut zone: --")
-makeInfo(zA, "zoneMult", "Zone çarpanı: --")
-makeButton(zA, "En İyi Zone'a Işınlan", function()
+local zA = ZoneTab:AddSection("Auto Zone")
+makeToggle(zA, "Auto Zone", "AutoZone")
+makeToggle(zA, "Auto Unlock Zones", "ZoneAutoUnlock")
+makeToggle(zA, "Auto Enter Unlocked Zone", "ZoneAutoEnter")
+makeInfo(zA, "zoneCurrent", "Current zone:")
+makeInfo(zA, "zoneMult", "Zone multiplier:")
+makeButton(zA, "Teleport to Best Zone", function()
     if Actions.autoZoneNow then
         Actions.autoZoneNow(true)
     end
 end)
 
-local zB = ZoneTab:AddSection("Zone Listesi")
-zB:AddLabel("Yeşil: açık, kırmızı: kilitli. TP yalnızca açık zone'larda çalışır.")
+local zB = ZoneTab:AddSection("Zone List")
 for _, zone in ipairs(getZoneList()) do
     local entry = zB:AddEntry(zone.name,
-        "Maliyet: " .. Format.formatBig(zone.cost) .. "  |  x" .. Format.formatBig(zone.multiplier),
+        "Cost: " .. Format.formatBig(zone.cost) .. "  |  x" .. Format.formatBig(zone.multiplier),
         "TP",
         function()
             if isZoneUnlocked(zone.name) then
                 if teleportToZone(zone.name) then
-                    notify(zone.name .. " zone'una ışınlandın.", "success")
+                    notify("Teleported to " .. zone.name .. ".", "success")
                 else
-                    notify("Zone konumu bulunamadı.", "error")
+                    notify("Zone position not found.", "error")
                 end
             else
-                notify(zone.name .. " kilitli. Önce açman gerekiyor.", "warn")
+                notify(zone.name .. " is locked. Unlock it first.", "warn")
             end
         end)
-    entry.SetStatus("KİLİTLİ", T.err)
+    entry.SetStatus("LOCKED")
     Refs.zoneRows[zone.name] = entry
 end
 
 -- ================================================================
--- GANIMET
+-- COMBAT (Boss + PvP)
 -- ================================================================
-local Loot = Window:AddTab("Ganimet", "o")
+local Combat = Window:AddTab("Combat", "o")
 
-local lA = Loot:AddSection("Ganimet Toplama")
-lA:AddLabel("Düşen eşyaları ve sandıkları otomatik toplar.")
-makeToggle(lA, "Otomatik Ganimet", "AutoCollect")
-makeToggle(lA, "Otomatik Görev (Whis / Kami)", "AutoQuest", function(on, isSync)
-    setQuestGuiHidden(on)
-    if isSync then
-        return
+local cS = Combat:AddSection("Boss Status")
+makeInfo(cS, "bossStatus", "Boss:")
+
+local cA = Combat:AddSection("Boss Farm")
+makeToggle(cA, "Auto Boss", "AutoBoss", function(on, isSync)
+    if on and not isSync and not getSelectedBoss() then
+        notify("No boss found right now. Will keep trying.", "warn")
     end
-    if on then
-        notify("Görev otomasyonu açık: görev penceresi gizlenir, ödüller otomatik alınır.", "info", 6)
-    else
-        notify("Görev otomasyonu kapalı: görev penceresi tekrar gösterilir.", "info")
-    end
-end, true)
-makeInfo(lA, "questStatus", "Görev: --")
-makeToggle(lA, "Otomatik Prompt", "AutoPrompt")
-makeSlider(lA, "Prompt Mesafesi (m)", "PromptRange", 5, 30, 1)
-local promptBox = lA:AddTextbox("Prompt Filtresi (virgülle)", "FormQuest,Ball,Dragon,Collect", function(text)
-    Config.PromptFilter = tostring(text or "")
-    queueSave()
-end, tostring(Config.PromptFilter or ""))
-table.insert(Refs.refreshers, function()
-    promptBox.Set(tostring(Config.PromptFilter or ""))
 end)
-makeInfo(lA, "dropCount", "Takip edilen ganimet: 0")
-makeButton(lA, "Yakındaki Ganimeti Topla", function()
-    if Actions.collectAll then
-        Actions.collectAll()
+makeDropdown(cA, "Boss Target", "BossTarget", UI_OPTIONS.BOSS)
+makeToggle(cA, "Teleport to Boss", "BossTP")
+makeToggle(cA, "Use Skills on Boss", "BossSkills")
+makeToggle(cA, "Flee on Low Health", "BossFlee")
+makeToggle(cA, "Recharge Energy When Low", "BossEnergy")
+makeSlider(cA, "Fight Distance (m)", "BossDistance", 30, 160, 5)
+makeSlider(cA, "Attack Time (s)", "BossAttackTime", 1, 10, 0.5)
+makeSlider(cA, "Flee Time (s)", "BossFleeTime", 1, 10, 0.5)
+makeSlider(cA, "Flee Distance (m)", "BossFleeDistance", 120, 300, 10)
+makeSlider(cA, "Collect Aura After Death (s)", "BossRespawnWait", 0, 120, 5)
+makeSlider(cA, "Flee Health (%)", "BossFleeHealth", 10, 80, 5)
+makeButton(cA, "Teleport to Selected Boss", function()
+    if Actions.bossTeleport then
+        Actions.bossTeleport()
     end
 end)
 
-local lB = Loot:AddSection("Dragon Ball / Dilek")
-lB:AddLabel("7 top varsa ejderhayı çağırır ve seçtiğin dileği kullanır.")
-makeToggle(lB, "Otomatik Dilek", "AutoWish")
-makeDropdown(lB, "Dilek Tercihi", "WishChoice", UI_OPTIONS.WISH)
-makeInfo(lB, "wish", "Dragon Ball: --")
-makeInfo(lB, "wishClaim", "Dilek durumu: --")
-makeButton(lB, "Ejderhayı Çağır (7 Top)", function()
-    if Actions.summonWish then
-        Actions.summonWish()
-    end
-end)
+local cB = Combat:AddSection("PvP")
+makeToggle(cB, "Auto PvP", "AutoPvP")
+makeToggle(cB, "Auto Skills", "AutoPvPSkills")
+makeToggle(cB, "Flee on Low Health", "AutoFlee")
+makeDropdown(cB, "Skill", "PvPSkill", UI_OPTIONS.SKILL)
+makeSlider(cB, "PvP Range (m)", "PvPRange", 50, 500, 10)
+makeSlider(cB, "Target Lead (s)", "PvPLead", 0, 0.5, 0.05)
+makeSlider(cB, "Flee Health (%)", "FleeHealth", 5, 90, 5)
 
-local lC = Loot:AddSection("Tüketilebilir / Craft")
-makeToggle(lC, "Otomatik Aura Capsule", "AutoBoost")
-makeToggle(lC, "Otomatik Dragon Radar", "AutoRadar")
-makeDropdown(lC, "Otomatik Craft", "AutoCraft", UI_OPTIONS.CRAFT)
-makeButton(lC, "Aura Capsule Kullan", function()
-    if Actions.useCapsule then
-        Actions.useCapsule()
-    end
-end)
-makeButton(lC, "Seçili Eşyayı Craft Et", function()
-    if Actions.craft then
-        Actions.craft(Config.AutoCraft)
-    end
-end)
-
--- ================================================================
--- PVP
--- ================================================================
-local PvP = Window:AddTab("PvP", "o")
-
-local pA = PvP:AddSection("PvP")
-pA:AddLabel("Yakındaki PvP'li oyuncuya yetenekleri otomatik yönlendirir.")
-makeToggle(pA, "Otomatik PvP", "AutoPvP")
-makeToggle(pA, "Otomatik Yetenek", "AutoPvPSkills")
-makeToggle(pA, "Canı Azalınca Kaç", "AutoFlee")
-makeDropdown(pA, "Yetenek", "PvPSkill", UI_OPTIONS.SKILL)
-makeSlider(pA, "PvP Menzili (m)", "PvPRange", 50, 500, 10)
-makeSlider(pA, "Hedef Öngörüsü (sn)", "PvPLead", 0, 0.5, 0.05)
-makeSlider(pA, "Kaçış Can Eşiği (%)", "FleeHealth", 5, 90, 5)
-
-local pB = PvP:AddSection("Durum")
-makeInfo(pB, "pvpState", "PvP durumu: --")
-makeInfo(pB, "pvpTarget", "Hedef: --")
-makeInfo(pB, "pvpKills", "Kill: --")
-makeButton(pB, "PvP Aç", function()
+local cC = Combat:AddSection("PvP Status")
+makeInfo(cC, "pvpState", "PvP:")
+makeInfo(cC, "pvpTarget", "Target:")
+makeInfo(cC, "pvpKills", "Kills:")
+makeButton(cC, "Enable PvP", function()
     if Actions.pvpOn then
         Actions.pvpOn()
     end
 end)
-makeButton(pB, "PvP Kapat", function()
+makeButton(cC, "Disable PvP", function()
     if Actions.pvpOff then
         Actions.pvpOff()
     end
 end)
-makeButton(pB, "Hedefe Işınlan", function()
+makeButton(cC, "Teleport to Target", function()
     if Actions.teleportToTarget then
         Actions.teleportToTarget()
     end
 end)
 
 -- ================================================================
--- ESP
+-- LOOT
 -- ================================================================
-local EspTab = Window:AddTab("ESP", "o")
+local Loot = Window:AddTab("Loot", "o")
 
-local eA = EspTab:AddSection("ESP")
-eA:AddLabel("Oyuncular, bosslar, ganimetler ve dragon ball'lar için kutular ve etiketler.")
-makeToggle(eA, "Oyuncu ESP", "ESPPlayers")
-makeToggle(eA, "Boss ESP", "ESPBosses")
-makeToggle(eA, "Ganimet ESP", "ESPDrops")
-makeToggle(eA, "Dragon Ball ESP", "ESPBalls")
-makeToggle(eA, "Çizgi (Tracer)", "ESPTracers")
-makeSlider(eA, "ESP Mesafesi (m)", "ESPMaxDistance", 100, 5000, 100)
-makeInfo(eA, "espInfo", "ESP: kapalı")
-makeButton(eA, "Tüm ESP'yi Kapat", function()
-    Config.ESPPlayers = false
-    Config.ESPBosses = false
-    Config.ESPDrops = false
-    Config.ESPBalls = false
-    Config.ESPTracers = false
-    queueSave()
-    for _, key in ipairs({ "ESPPlayers", "ESPBosses", "ESPDrops", "ESPBalls", "ESPTracers" }) do
-        refreshToggle(key)
-    end
-    notify("Tüm ESP kapalı.", "info")
-end)
-
--- ================================================================
--- ARACLAR
--- ================================================================
-local Util = Window:AddTab("Araçlar", "o")
-
-local uA = Util:AddSection("Karakter")
-uA:AddLabel("Yürüme hızı, anti-AFK ve HUD.")
-makeSlider(uA, "Yürüme Hızı", "WalkSpeed", 16, 120, 2, function(value)
-    local humanoid = Game.getHumanoid()
-    if humanoid then
-        humanoid.WalkSpeed = tonumber(value) or 16
+local lA = Loot:AddSection("Auto Loot")
+makeInfo(lA, "dropCount", "Tracked loot:")
+makeToggle(lA, "Auto Collect Loot", "AutoCollect")
+makeButton(lA, "Collect Nearby Loot", function()
+    if Actions.collectAll then
+        Actions.collectAll()
     end
 end)
-makeToggle(uA, "Anti-AFK", "AntiAFK")
-makeToggle(uA, "HUD Göster", "HUD")
 
-local uB = Util:AddSection("Ekipman")
-uB:AddLabel("Envanterdeki en iyi aksesuarları kuşanır.")
-makeToggle(uB, "Otomatik Ekipman", "AutoGear")
-makeDropdown(uB, "Ekipman Önceliği", "GearStat", UI_OPTIONS.GEAR)
-makeButton(uB, "En İyi Eşyaları Kuşan", function()
+local lP = Loot:AddSection("Auto Prompt")
+makeToggle(lP, "Auto Prompt", "AutoPrompt")
+makeSlider(lP, "Prompt Range (m)", "PromptRange", 5, 30, 1)
+makeToggle(lP, "Quest NPC Prompts", "PromptQuest")
+makeToggle(lP, "Dragon Ball Prompts", "PromptBalls")
+makeToggle(lP, "Chest & Collectible Prompts", "PromptChests")
+
+local lQ = Loot:AddSection("Quests")
+makeInfo(lQ, "questStatus", "Quest:")
+makeToggle(lQ, "Auto Quest (Whis / Kami)", "AutoQuest", function(on, isSync)
+    setQuestGuiHidden(on)
+    if isSync then
+        return
+    end
+    if on then
+        notify("Auto Quest on: quest window is hidden and rewards are claimed automatically.", "info", 6)
+    else
+        notify("Auto Quest off: quest window is visible again.", "info")
+    end
+end, true)
+
+local lB = Loot:AddSection("Dragon Ball")
+makeInfo(lB, "wish", "Dragon Ball:")
+makeInfo(lB, "wishClaim", "Wish status:")
+makeToggle(lB, "Auto Wish", "AutoWish")
+makeDropdown(lB, "Wish Choice", "WishChoice", UI_OPTIONS.WISH)
+makeButton(lB, "Summon Dragon (7 Balls)", function()
+    if Actions.summonWish then
+        Actions.summonWish()
+    end
+end)
+
+local lC = Loot:AddSection("Consumables & Crafting")
+makeToggle(lC, "Auto Aura Capsule", "AutoBoost")
+makeToggle(lC, "Auto Dragon Radar", "AutoRadar")
+makeDropdown(lC, "Auto Craft", "AutoCraft", UI_OPTIONS.CRAFT)
+makeButton(lC, "Use Aura Capsule", function()
+    if Actions.useCapsule then
+        Actions.useCapsule()
+    end
+end)
+makeButton(lC, "Craft Selected Item", function()
+    if Actions.craft then
+        Actions.craft(Config.AutoCraft)
+    end
+end)
+
+local lE = Loot:AddSection("Equipment")
+makeInfo(lE, "gearInfo", "Equipment:")
+makeInfo(lE, "inventoryInfo", "Items:")
+makeToggle(lE, "Auto Equip Best Gear", "AutoGear")
+makeDropdown(lE, "Gear Priority", "GearStat", UI_OPTIONS.GEAR)
+makeButton(lE, "Equip Best Gear Now", function()
     if Actions.equipBestGear then
         Actions.equipBestGear()
     end
 end)
-makeInfo(uB, "gearInfo", "Envanter: --")
-makeInfo(uB, "inventoryInfo", "Eşya: --")
 
-local uC = Util:AddSection("Kod ve Sunucu")
-local codeBox = uC:AddTextbox("Kod", "Kodu buraya yaz")
-makeButton(uC, "Kodu Kullan", function()
-    if Actions.redeemCode then
-        Actions.redeemCode(codeBox.Get())
+-- ================================================================
+-- ESP
+-- ================================================================
+local ESP_DEFAULT_COLORS = {
+    Boss = Color3.fromRGB(255, 192, 86),
+    Drop = Color3.fromRGB(92, 221, 148),
+    Ball = Color3.fromRGB(255, 160, 60),
+}
+local ESPCol = {}
+for k, v in pairs(ESP_DEFAULT_COLORS) do
+    ESPCol[k] = v
+end
+
+local EspTab = Window:AddTab("ESP", "o")
+
+local eA = EspTab:AddSection("ESP")
+makeToggle(eA, "Boss ESP", "ESPBosses")
+makeToggle(eA, "Loot ESP", "ESPDrops")
+makeToggle(eA, "Dragon Ball ESP", "ESPBalls")
+makeToggle(eA, "Name + Distance Labels", "ESPNames")
+makeToggle(eA, "Health Bar", "ESPHealth")
+makeToggle(eA, "Glow / Fill", "ESPHighlight")
+makeToggle(eA, "Tracers (needs Drawing API)", "ESPTracers")
+
+local eB = EspTab:AddSection("Style")
+makeDropdown(eB, "Tracer Origin", "ESPTracerOrigin", {
+    { label = "Bottom", value = "Bottom" },
+    { label = "Center", value = "Center" },
+    { label = "Top", value = "Top" },
+})
+makeSlider(eB, "Fill Transparency", "ESPFill", 0, 1, 0.05)
+makeSlider(eB, "Text Size", "ESPTextSize", 9, 20, 1)
+makeSlider(eB, "ESP Range (m)", "ESPMaxDistance", 100, 5000, 100)
+local espPickers = {}
+for _, def in ipairs({ { "Boss", "Boss Color" }, { "Drop", "Loot Color" }, { "Ball", "Dragon Ball Color" } }) do
+    espPickers[def[1]] = eB:AddColorPicker(def[2], ESPCol[def[1]], function(c)
+        ESPCol[def[1]] = c
+    end)
+end
+makeButton(eB, "Reset Colors", function()
+    for k, picker in pairs(espPickers) do
+        picker.Set(ESP_DEFAULT_COLORS[k])
     end
 end)
-makeButton(uC, "İstatistikleri Kopyala", function()
-    if Actions.copyStats then
-        Actions.copyStats()
+
+-- ================================================================
+-- PLAYER
+-- ================================================================
+local PlayerTab = Window:AddTab("Player", "o")
+
+local uA = PlayerTab:AddSection("Speed")
+makeToggle(uA, "Speed Boost", "SpeedBoost", function(on)
+    local humanoid = Game.getHumanoid()
+    if humanoid then
+        humanoid.WalkSpeed = on and (tonumber(Config.WalkSpeed) or 16) or 16
+    end
+end, true)
+makeSlider(uA, "Speed Value", "WalkSpeed", 16, 140, 2, function(value)
+    local humanoid = Game.getHumanoid()
+    if humanoid and Config.SpeedBoost == true then
+        humanoid.WalkSpeed = tonumber(value) or 16
     end
 end)
-makeButton(uC, "Sunucuya Yeniden Katıl", function()
+
+local uB = PlayerTab:AddSection("Connection")
+makeToggle(uB, "Anti-AFK", "AntiAFK")
+makeButton(uB, "Rejoin", function()
     if Actions.rejoin then
         Actions.rejoin()
     end
@@ -4166,53 +4597,59 @@ end)
 -- ================================================================
 -- HUD (yuzen, panel kapaliyken gorunur)
 -- ================================================================
+local applyHudScale
 do
+    local isTouch = UserInputService.TouchEnabled and not UserInputService.MouseEnabled
     hudFrame = new("Frame", {
-        Name = "AuraXHUD",
-        Size = UDim2.fromOffset(220, 150),
-        Position = UDim2.fromOffset(16, 56),
+        Name = "AuroraXHUD",
+        Size = UDim2.fromOffset(210, 0),
+        AutomaticSize = Enum.AutomaticSize.Y,
+        Position = isTouch and UDim2.fromOffset(12, 48) or UDim2.fromOffset(16, 56),
         BackgroundColor3 = T.card,
         BackgroundTransparency = 0.08,
         BorderSizePixel = 0,
         Visible = false,
         Active = true,
-    }, { corner(12), stroke(T.line, 1, 0.3) })
+    }, {
+        corner(12), stroke(T.line, 1, 0.3), pad(12, 8, 12, 10),
+        new("UIListLayout", { Padding = UDim.new(0, 3), SortOrder = Enum.SortOrder.LayoutOrder }),
+    })
     onThemeChange(function(k, c)
         if k == "card" then
             hudFrame.BackgroundColor3 = c
         end
     end)
-    local hudTop = new("Frame", { Size = UDim2.new(1, 0, 0, 28), BackgroundTransparency = 1 })
+    local hudTop = new("Frame", { Size = UDim2.new(1, 0, 0, 22), BackgroundTransparency = 1, LayoutOrder = 0 })
     hudTop.Parent = hudFrame
     local hudTitle = label({
-        Text = "AURA X  |  HUD", Font = Enum.Font.GothamBold, TextSize = 11, TextColor3 = accent,
-        Size = UDim2.new(1, -16, 1, 0), Position = UDim2.fromOffset(12, 0),
+        Text = "AURORA X  |  HUD", Font = Enum.Font.GothamBold, TextSize = 11, TextColor3 = accent,
+        Size = UDim2.fromScale(1, 1),
     })
     hudTitle.Parent = hudTop
     onAccent(function(a)
         hudTitle.TextColor3 = a
     end)
     local hudRows = {
-        { "aura", "Aura" }, { "energy", "Enerji" }, { "rebirth", "Rebirth" },
-        { "zone", "Zone" }, { "force", "Aura/sn" }, { "status", "Durum" },
+        { "aura", "Aura" }, { "energy", "Energy" }, { "rebirth", "Rebirth" },
+        { "zone", "Zone" }, { "force", "Aura/s" }, { "status", "Status" },
     }
     for i, r in ipairs(hudRows) do
-        local y = 32 + (i - 1) * 19
-        label({ Text = r[2], TextSize = 11, TextColor3 = T.sub, Size = UDim2.fromOffset(58, 16), Position = UDim2.fromOffset(12, y) }).Parent = hudFrame
+        local row = new("Frame", { Size = UDim2.new(1, 0, 0, 16), BackgroundTransparency = 1, LayoutOrder = i })
+        label({ Text = r[2], TextSize = 11, TextColor3 = T.sub, Size = UDim2.fromOffset(56, 16) }).Parent = row
         local v = label({
-            Text = "--", TextSize = 11, TextTruncate = Enum.TextTruncate.AtEnd,
-            Size = UDim2.new(1, -84, 0, 16), Position = UDim2.fromOffset(72, y),
+            Text = "", TextSize = 11, TextTruncate = Enum.TextTruncate.AtEnd,
+            Size = UDim2.new(1, -60, 1, 0), Position = UDim2.fromOffset(60, 0),
         })
-        v.Parent = hudFrame
+        v.Parent = row
+        row.Parent = hudFrame
         Refs.hud[r[1]] = v
     end
-    local isTouch = UserInputService.TouchEnabled and not UserInputService.MouseEnabled
-    local hudScale = Instance.new("UIScale")
-    hudScale.Scale = isTouch and 0.8 or 1
+    local hudScale = new("UIScale", {})
     hudScale.Parent = hudFrame
-    if isTouch then
-        hudFrame.Position = UDim2.fromOffset(12, 48)
+    applyHudScale = function()
+        hudScale.Scale = (isTouch and 0.85 or 1) * math.clamp(tonumber(Config.HUDScale) or 1, 0.5, 2)
     end
+    applyHudScale()
     hudFrame.Parent = gui
 
     local hudDragging, hudStart, hudStartPos = false, nil, nil
@@ -4231,9 +4668,9 @@ do
             local d = input.Position - hudStart
             local cam = workspace.CurrentCamera
             local vp = cam and cam.ViewportSize or Vector2.new(1280, 720)
-            local nx = math.clamp(hudStartPos.X.Offset + d.X, 0, math.max(0, vp.X - 80))
-            local ny = math.clamp(hudStartPos.Y.Offset + d.Y, 0, math.max(0, vp.Y - 60))
-            hudFrame.Position = UDim2.fromOffset(nx, ny)
+            hudFrame.Position = UDim2.fromOffset(
+                math.clamp(hudStartPos.X.Offset + d.X, 0, math.max(0, vp.X - 80)),
+                math.clamp(hudStartPos.Y.Offset + d.Y, 0, math.max(0, vp.Y - 60)))
         end
     end))
     track(UserInputService.InputEnded:Connect(function(input)
@@ -4248,43 +4685,49 @@ if Config.AutoQuest then
 end
 Aurora.ShiftToggle = Config.Keybind ~= false
 
--- Settings sekmesine eklenen Aura X bolumu (Settings sekmesi olusturulunca cagrilir)
+-- Settings sekmesine eklenen Aurora X bolumleri
 local function addSettingsSection(SettingsTab)
-    local sA = SettingsTab:AddSection("Aura X Hub")
-    makeToggle(sA, "RightShift Kısayolu", "Keybind", function(on)
+    local sH = SettingsTab:AddSection("HUD")
+    makeToggle(sH, "Show HUD (when menu is closed)", "HUD")
+    makeSlider(sH, "HUD Size", "HUDScale", 0.5, 1.6, 0.05, function()
+        applyHudScale()
+    end)
+
+    local sA = SettingsTab:AddSection("Hub Settings")
+    makeToggle(sA, "RightShift Shortcut", "Keybind", function(on)
         Aurora.ShiftToggle = on
     end, true)
-    makeToggle(sA, "Bildirimler", "Notifications")
-    sA:AddInfo("Config dosyası: " .. CONFIG_FILE)
-    makeButton(sA, "Config Kaydet", function()
+    makeToggle(sA, "Notifications", "Notifications")
+    sA:AddInfo("Config file: " .. CONFIG_FILE)
+    makeButton(sA, "Save Hub Config", function()
         saveConfig()
-        notify("Config kaydedildi.", "success")
+        notify("Config saved.", "success")
     end)
-    makeButton(sA, "Config Yükle", function()
+    makeButton(sA, "Load Hub Config", function()
         loadConfig()
         refreshAllWidgets()
+        applyHudScale()
         applyWalkSpeed()
         setQuestGuiHidden(Config.AutoQuest == true)
         Aurora.ShiftToggle = Config.Keybind ~= false
-        notify("Config yüklendi ve arayüz güncellendi.", "success")
+        notify("Config loaded and UI refreshed.", "success")
     end)
-    local sB = SettingsTab:AddSection("Aura X Bilgi", true)
-    sB:AddInfo("Bu hub sunucu tarafı değerleri zorlamaz; oyunun kendi remote'larını kullanır.")
-    sB:AddInfo("- Aura / Enerji farm, akıllı denge\n- Otomatik rebirth + SSJ1 form\n- Otomatik zone açma / ışınlanma\n- Ganimet, görev, dilek, craft, boost\n- PvP aim + yetenek + kaçış\n- ESP: oyuncu, boss, drop, dragon ball\n- HUD, anti-AFK, config")
-    makeButton(sB, "Paneli Gizle", function()
+    local sB = SettingsTab:AddSection("About", true)
+    sB:AddInfo("The hub does not force server-side values; it uses the game's own remotes.")
+    sB:AddInfo("Farm: aura / energy / smart farm\nRebirth: auto rebirth + SSJ1 form\nZone: auto unlock / teleport\nCombat: boss bot + PvP\nLoot: loot, prompts, quests, dragon ball, craft, gear\nESP: bosses, loot, dragon balls\nPlayer: speed, anti-AFK, rejoin")
+    makeButton(sB, "Hide Menu", function()
         if Window.Minimize then
             Window.Minimize()
         else
             Window.SetOpen(false)
         end
     end)
-    makeButton(sB, "Scripti Kaldır", function()
+    makeButton(sB, "Unload Script", function()
         pcall(function()
             gui:Destroy()
         end)
     end)
 end
-
 
 -- ================================================================
 -- OLAY BAGLANTILARI
@@ -4342,22 +4785,22 @@ end
 
 local function updateQuestLabel(data)
     if type(data) ~= "table" or data.Id == nil then
-        setLabel("questStatus", "Görev: --")
+        setLabel("questStatus", "Quest: None")
         return
     end
-    local text = "Görev: " .. tostring(data.Name or data.Id)
+    local text = "Quest: " .. tostring(data.Name or data.Id)
     if type(data.Completed) == "number" and type(data.Total) == "number" then
         text = text .. "  |  " .. tostring(data.Completed) .. "/" .. tostring(data.Total)
     end
     local suffix
     if data.Owned then
-        suffix = "tamamlandı"
+        suffix = "completed"
     elseif data.Ready then
-        suffix = "ödül hazır"
+        suffix = "reward ready"
     elseif data.CanStart then
-        suffix = "başlatılabilir"
+        suffix = "can start"
     elseif data.Accepted then
-        suffix = "devam ediyor"
+        suffix = "in progress"
     end
     if suffix then
         text = text .. "  (" .. suffix .. ")"
@@ -4399,7 +4842,7 @@ local function handleQuest(data)
 
     if Remote.inventoryAction(action, data.Id) then
         EventState.lastQuestInteraction = os.clock()
-        notify("Görev: " .. tostring(data.Name or data.Id) .. " -> " .. action, "success", 5)
+        notify("Quest: " .. tostring(data.Name or data.Id) .. " -> " .. action, "success", 5)
     end
 end
 
@@ -4432,7 +4875,7 @@ local function onInventoryEvent(action, data)
         end
         return
     elseif action == "BossLoot" and type(data) == "table" then
-        notify("Boss ganimeti geldi. Otomatik toplama açıksa alınacak.", "info", 4)
+        notify("Boss loot dropped. It will be collected if Auto Loot is on.", "info", 4)
         return
     elseif action == "QuestOpen" or action == "QuestState" then
         updateQuestLabel(data)
@@ -4442,7 +4885,7 @@ local function onInventoryEvent(action, data)
         handleQuest(data)
         return
     elseif action == "QuestClose" then
-        setLabel("questStatus", "Görev: --")
+        setLabel("questStatus", "Quest: None")
         return
     end
 end
@@ -4467,7 +4910,7 @@ local function attemptWishChoice()
     end
     lastWishChoose = wishId
     if Remote.fireRemote("DragonWishes", "Choose", wishId, choice) then
-        notify("Dilek seçildi: " .. choice, "success", 5)
+        notify("Wish chosen: " .. choice, "success", 5)
         return true
     end
     lastWishChoose = nil
@@ -4491,7 +4934,7 @@ local function onWishEvent(action, data)
             lastWishChoose = nil
         end
     elseif action == "Granted" then
-        notify("Dilek kabul edildi!", "success", 6)
+        notify("Wish granted!", "success", 6)
     elseif action == "Message" and type(data) == "string" then
         if data:match("^Dragon Ball collected!") then
             notify(data, "success", 3)
@@ -4684,23 +5127,23 @@ Actions.rebirthNow = function()
     local aura = Game.readBig("Aura")
     local cost = Game.readBig("NextRebirthCost")
     if not aura or not cost or B.IsZero(cost) or B.Cmp(aura, cost) < 0 then
-        notify("Rebirth için yeterli Aura yok.", "warn")
+        notify("Not enough Aura to rebirth.", "warn")
         return
     end
     if nextRebirthNeedsSSJ1() and getCurrentForm() ~= "SSJ1" then
-        notify("Bu rebirth için SSJ1 formu gerekiyor. Önce formu kuşan.", "warn", 5)
+        notify("This rebirth needs the SSJ1 form. Equip it first.", "warn", 5)
         return
     end
     if Remote.fireRemote("Rebirth") then
-        notify("Rebirth isteği gönderildi.", "success")
+        notify("Rebirth request sent.", "success")
     else
-        notify("Rebirth remote'u bulunamadı.", "error")
+        notify("Rebirth remote not found.", "error")
     end
 end
 
 Actions.equipBestGear = function()
     if not inventoryState then
-        notify("Envanter henüz yüklenmedi. Birkaç saniye sonra tekrar dene.", "warn")
+        notify("Inventory not loaded yet. Try again in a few seconds.", "warn")
         return
     end
     task.spawn(function()
@@ -4710,7 +5153,7 @@ Actions.equipBestGear = function()
             end
             task.wait(0.65)
         end
-        notify("Ekipman işlemi tamamlandı.", "success")
+        notify("Equipment updated.", "success")
     end)
 end
 
@@ -4730,42 +5173,42 @@ Actions.collectAll = function()
             end
         end
     end
-    notify(collected > 0 and ("Toplama isteği: " .. collected) or "Yakında ganimet yok.", collected > 0 and "success" or "info")
+    notify(collected > 0 and ("Collect request: " .. collected) or "No loot nearby.", collected > 0 and "success" or "info")
 end
 
 Actions.summonWish = function()
     if LocalPlayer:GetAttribute("WishCanSummon") ~= true then
-        notify("Ejderhayı çağırmak için 7 Dragon Ball gerekiyor.", "warn")
+        notify("You need 7 Dragon Balls to summon the dragon.", "warn")
         return
     end
     if currentWish then
-        notify("Bir dilek zaten aktif.", "warn")
+        notify("A wish is already active.", "warn")
         return
     end
     local cooldownUntil = LocalPlayer:GetAttribute("WishSummonCooldownUntil")
     local remaining = type(cooldownUntil) == "number" and math.max(0, cooldownUntil - workspace:GetServerTimeNow()) or 0
     if remaining > 0 then
-        notify("Çağırma bekleme süresi: " .. Format.formatTime(remaining), "warn")
+        notify("Summon cooldown: " .. Format.formatTime(remaining), "warn")
         return
     end
     if Remote.fireRemote("DragonWishes", "Summon") then
-        notify("Ejderha çağırma isteği gönderildi.", "success")
+        notify("Dragon summon request sent.", "success")
     else
-        notify("DragonWishes remote'u bulunamadı.", "error")
+        notify("DragonWishes remote not found.", "error")
     end
 end
 
 Actions.useCapsule = function()
     if itemQuantity("AuraBoost2X") > 0 then
         if Remote.inventoryAction("Use", "AuraBoost2X") then
-            notify("2X Aura Capsule kullanıldı.", "success")
+            notify("2X Aura Capsule used.", "success")
         end
     elseif itemQuantity("AuraBoost") > 0 then
         if Remote.inventoryAction("Use", "AuraBoost") then
-            notify("Aura Capsule kullanıldı.", "success")
+            notify("Aura Capsule used.", "success")
         end
     else
-        notify("Envanterde Aura Capsule yok.", "warn")
+        notify("No Aura Capsule in inventory.", "warn")
     end
 end
 
@@ -4776,13 +5219,13 @@ Actions.pvpOn = function()
     end
     local remote = Remote.getRemote("PVP")
     if remote and remote:GetAttribute("Ready") ~= true then
-        notify("PvP sistemi henüz hazır değil.", "warn")
+        notify("PvP system is not ready yet.", "warn")
         return
     end
     if Remote.fireRemote("PVP", character, true) then
-        notify("PvP açma isteği gönderildi.", "success")
+        notify("PvP enable request sent.", "success")
     else
-        notify("PVP remote'u bulunamadı.", "error")
+        notify("PVP remote not found.", "error")
     end
 end
 
@@ -4797,7 +5240,7 @@ Actions.pvpOff = function()
         return
     end
     if Remote.fireRemote("PVP", character, false) then
-        notify("PvP kapatma isteği gönderildi.", "info")
+        notify("PvP disable request sent.", "info")
     end
 end
 
@@ -4807,50 +5250,50 @@ Actions.teleportToTarget = function()
         player, root = getNearestPvPTarget(1000, false)
     end
     if not root then
-        notify("Yakında oyuncu yok.", "warn")
+        notify("No player nearby.", "warn")
         return
     end
     if Game.teleportTo(root.Position + Vector3.new(0, 0, 8)) then
-        notify("Hedefe ışınlandın: " .. player.Name, "success")
+        notify("Teleported to target: " .. player.Name, "success")
     end
 end
 
 Actions.bossTeleport = function()
     local model, _, root = getSelectedBoss()
     if not model or not root then
-        notify("Seçili boss bulunamadı.", "warn")
+        notify("Selected boss not found.", "warn")
         return
     end
     local offset = root.CFrame.LookVector * 24
     if Game.teleportTo(root.Position + offset) then
-        notify("Boss'a ışınlandın: " .. model.Name, "success")
+        notify("Teleported to boss: " .. model.Name, "success")
     end
 end
 
 Actions.redeemCode = function(code)
     code = trim(code or "")
     if code == "" then
-        notify("Kod boş.", "warn")
+        notify("Code is empty.", "warn")
         return
     end
     if #code > 64 then
-        notify("Kod çok uzun.", "warn")
+        notify("Code is too long.", "warn")
         return
     end
     local remote = Remote.getRemote("RedeemCode")
     if not remote then
-        notify("RedeemCode remote'u bulunamadı.", "error")
+        notify("RedeemCode remote not found.", "error")
         return
     end
     if remote:GetAttribute("Ready") ~= true then
-        notify("Kod sistemi henüz hazır değil.", "warn")
+        notify("Code system is not ready yet.", "warn")
         return
     end
     local ok = pcall(function()
         remote:FireServer(HttpService:GenerateGUID(false), code)
     end)
     if ok then
-        notify("Kod gönderildi: " .. code, "info")
+        notify("Code sent: " .. code, "info")
     end
 end
 
@@ -4860,24 +5303,24 @@ Actions.copyStats = function()
     local energy = Game.readNumber("Energy") or 0
     local maxEnergy = Game.readNumber("MaxEnergy") or 0
     local text = table.concat({
-        "AuraX Hub v" .. VERSION,
+        "Aurora X Hub v" .. VERSION,
         "Aura: " .. Format.formatBig(aura),
-        "Enerji: " .. Format.formatNumber(energy) .. "/" .. Format.formatNumber(maxEnergy),
+        "Energy: " .. Format.formatNumber(energy) .. "/" .. Format.formatNumber(maxEnergy),
         "Rebirth: " .. tostring(getRebirths()) .. "/" .. tostring(MAX_REBIRTHS),
         "Form: " .. getCurrentForm(),
         "Zone: " .. getCurrentZoneName(),
-        "Sonraki maliyet: " .. Format.formatBig(cost),
+        "Next cost: " .. Format.formatBig(cost),
         "PvP: " .. tostring(LocalPlayer:GetAttribute("PVPEnabled")),
-        "Kill: " .. Format.formatBig(Game.readBig("Kills")),
+        "Kills: " .. Format.formatBig(Game.readBig("Kills")),
     }, "\n")
     local ok = pcall(function()
         setclipboard(text)
     end)
-    notify(ok and "İstatistikler panoya kopyalandı." or "Panoya kopyalama desteklenmiyor.", ok and "success" or "warn")
+    notify(ok and "Stats copied to clipboard." or "Clipboard is not supported.", ok and "success" or "warn")
 end
 
 Actions.rejoin = function()
-    notify("Sunucuya yeniden katılıyorsun...", "info", 3)
+    notify("Rejoining the server...", "info", 3)
     task.delay(1, function()
         pcall(function()
             TeleportService:Teleport(game.PlaceId, LocalPlayer)
@@ -4896,15 +5339,15 @@ Actions.craft = function(itemId)
         end
     end
     if not itemId then
-        notify("Craft için malzeme veya form eksik.", "warn")
+        notify("Missing materials or form for crafting.", "warn")
         return
     end
     if not canCraft(itemId) then
-        notify("Craft koşulları sağlanmıyor: " .. itemId, "warn", 5)
+        notify("Craft requirements not met: " .. itemId, "warn", 5)
         return
     end
     if Remote.inventoryAction("Craft", itemId) then
-        notify("Craft isteği: " .. itemId, "success")
+        notify("Craft request: " .. itemId, "success")
     end
 end
 
@@ -4998,6 +5441,25 @@ local function farmStep()
         wantEnergy = false
     end
 
+    -- Boss botu enerji yenilemek isterse enerji farmi oncelikli
+    if AutoState.bossFarmEnergy and canFarmEnergy then
+        wantEnergy = true
+        wantAura = false
+    end
+
+    -- Boss savasi sirasinda farm yetenekleri engelleyebilir: dovusurken durdur, olumden sonra aura topla
+    if Config.AutoBoss then
+        if AutoState.bossMode == "fight" then
+            wantAura, wantEnergy = false, false
+        elseif AutoState.bossMode == "collect" then
+            if energy > 0 or not canFarmEnergy then
+                wantAura, wantEnergy = true, false
+            else
+                wantAura, wantEnergy = false, true
+            end
+        end
+    end
+
     local farmingAura = character:GetAttribute("FarmingAura") == true
     local farmingEnergy = character:GetAttribute("FarmingEnergy") == true
 
@@ -5026,7 +5488,7 @@ local function rebirthStep()
         if nextRebirthNeedsSSJ1() and getCurrentForm() ~= "SSJ1" then
             AutoState.lastFormEquip = now
             if equipForm("SSJ1") then
-                notify("SSJ1 otomatik kuşanılıyor.", "info", 3)
+                notify("Equipping SSJ1 automatically.", "info", 3)
             end
         end
     end
@@ -5042,7 +5504,7 @@ local function rebirthStep()
             Config.AutoRebirth = false
             queueSave()
             refreshToggle("AutoRebirth")
-            notify("Maksimum rebirth sayısına ulaşıldı (" .. tostring(MAX_REBIRTHS) .. ").", "warn", 8)
+            notify("Reached the maximum rebirth count (" .. tostring(MAX_REBIRTHS) .. ").", "warn", 8)
         end
         return
     end
@@ -5063,7 +5525,7 @@ local function rebirthStep()
     if Remote.fireRemote("Rebirth") then
         AutoState.rebirthNotifyCounter = AutoState.rebirthNotifyCounter + 1
         if AutoState.rebirthNotifyCounter % 10 == 1 then
-            notify("Rebirth yapıldı. Toplam: " .. tostring(count + 1), "success", 3)
+            notify("Rebirth done. Total: " .. tostring(count + 1), "success", 3)
         end
     end
 end
@@ -5087,7 +5549,7 @@ local function autoZoneStep(forceEnter)
                 if formOk and B.GTE(aura, zone.cost) and os.clock() - AutoState.lastZoneAction > 2 then
                     AutoState.lastZoneAction = os.clock()
                     if Remote.fireRemote("UnlockZone", zone.name) then
-                        notify("Zone açılıyor: " .. zone.name, "info", 4)
+                        notify("Unlocking zone: " .. zone.name, "info", 4)
                     end
                 end
                 break
@@ -5165,33 +5627,267 @@ Actions.autoZoneNow = function(forceEnter)
 end
 
 
-local function bossStep()
-    if not Config.AutoBoss then
-        return
+-- ================================================================
+-- BOSS BOTU: yaklas, mesafeyi koru, yetenek bas, can dusunce kac, iyilesince don
+-- ================================================================
+local function bossGround(position, ignoreList)
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    params.FilterDescendantsInstances = ignoreList
+    local result = workspace:Raycast(Vector3.new(position.X, position.Y + 150, position.Z), Vector3.new(0, -400, 0), params)
+    if result then
+        return result.Position + Vector3.new(0, 4, 0)
     end
-    local model, humanoid, root = getSelectedBoss()
-    if not model or not humanoid or not root then
-        return
-    end
-    local myRoot = Game.getRoot()
-    if not myRoot then
-        return
-    end
-    local distance = (root.Position - myRoot.Position).Magnitude
-
-    if Config.BossTP and distance > 120 and os.clock() - AutoState.lastBossTeleport > 3 then
-        AutoState.lastBossTeleport = os.clock()
-        local offset = root.CFrame.LookVector * 24
-        Game.teleportTo(root.Position + offset)
-    end
-
-    if Config.BossSkills then
-        local velocity = root.AssemblyLinearVelocity
-        local aim = root.Position + (velocity and velocity * 0.08 or Vector3.zero)
-        castBestSkillAt(aim, math.huge, "Auto")
-    end
+    return position + Vector3.new(0, 4, 0)
 end
 
+local function bossSidePoint(bossPosition, fromPosition, distance, angle)
+    local flat = Vector3.new(fromPosition.X - bossPosition.X, 0, fromPosition.Z - bossPosition.Z)
+    if flat.Magnitude < 1 then
+        flat = Vector3.new(0, 0, 1)
+    end
+    flat = flat.Unit
+    if angle and angle ~= 0 then
+        flat = CFrame.Angles(0, angle, 0):VectorToWorldSpace(flat)
+    end
+    return bossPosition + flat * distance
+end
+
+local function bossJump(myRoot, model, point, lookAtPosition)
+    local ground = bossGround(point, { Game.getCharacter(), model })
+    pcall(function()
+        myRoot.AssemblyLinearVelocity = Vector3.zero
+        if lookAtPosition then
+            myRoot.CFrame = CFrame.lookAt(ground, Vector3.new(lookAtPosition.X, ground.Y, lookAtPosition.Z))
+        else
+            myRoot.CFrame = CFrame.new(ground)
+        end
+    end)
+end
+
+-- Boss icin yetenek: hazir olma kontrolu gevsetilmis (Ready/Unlocked ozniteligine bagimli degil), kendi bekleme suresi tutar
+local function castBossSkills(position)
+    local character = Game.getCharacter()
+    local myRoot = Game.getRoot()
+    if not character or not myRoot or typeof(position) ~= "Vector3" then
+        return false
+    end
+    if character:GetAttribute("SkillCasting") == true then
+        return false
+    end
+    local now = os.clock()
+    local serverNow = workspace:GetServerTimeNow()
+    local energy = Game.readNumber("Energy") or 0
+    local equipped = LocalPlayer:GetAttribute("EquippedPlayerSkill")
+    local equippedKnown = type(equipped) == "string" and SKILL_META[equipped] ~= nil
+    local last = AutoState.skillLast
+    if not last then
+        last = {}
+        AutoState.skillLast = last
+    end
+    local distance = (position - myRoot.Position).Magnitude
+    for _, name in ipairs(SKILL_ORDER) do
+        local meta = SKILL_META[name]
+        local remote = Remote.getSkillRemote(name)
+        if remote and distance <= meta.range and (not equippedKnown or equipped == name) then
+            local cooldown = tonumber(remote:GetAttribute("Cooldown")) or meta.cooldown
+            local nextCast = LocalPlayer:GetAttribute("Skill_" .. name .. "_NextCastAt")
+            local cost = tonumber(remote:GetAttribute("EnergyCost")) or meta.cost
+            local serverOk = not (type(nextCast) == "number" and serverNow < nextCast)
+            if serverOk and now - (last[name] or 0) >= cooldown + 0.05 and energy >= cost + (Config.SkillEnergyReserve or 0) then
+                local ok = pcall(function()
+                    remote:FireServer("Cast", character, position)
+                end)
+                if ok then
+                    last[name] = now
+                    AutoState.bossLastCast = now
+                    return true
+                end
+            end
+        end
+    end
+    return false
+end
+
+local function bossStep()
+    if not Config.AutoBoss then
+        AutoState.bossMode = nil
+        AutoState.bossStatus = nil
+        AutoState.bossFarmEnergy = false
+        AutoState.bossPhase = nil
+        return
+    end
+    local now = os.clock()
+    local humanoid = Game.getHumanoid()
+    local myRoot = Game.getRoot()
+    if not humanoid or not myRoot then
+        AutoState.bossMode = nil
+        AutoState.bossPhase = nil
+        AutoState.bossStatus = "Waiting for respawn"
+        AutoState.bossFarmEnergy = false
+        return
+    end
+
+    -- Olunce aura gider: once biraz topla, sonra boss'a don
+    if now < (AutoState.bossResumeAt or 0) then
+        AutoState.bossMode = "collect"
+        AutoState.bossPhase = nil
+        AutoState.bossFarmEnergy = false
+        AutoState.bossStatus = string.format("Collecting aura (%ds)", math.ceil(AutoState.bossResumeAt - now))
+        return
+    end
+
+    local hpFrac = humanoid.MaxHealth > 0 and humanoid.Health / humanoid.MaxHealth or 1
+    local energy = Game.readNumber("Energy") or 0
+    local maxEnergy = Game.readNumber("MaxEnergy") or 0
+    local energyFrac = maxEnergy > 0 and energy / maxEnergy or 1
+
+    -- Hasar takibi: 1.5 sn icinde cok can kaybi = acil kacis
+    local sample = AutoState.bossSample
+    if not sample or now - sample.t >= 1.5 then
+        AutoState.bossRecentDrop = sample and (sample.v - hpFrac) or 0
+        AutoState.bossSample = { t = now, v = hpFrac }
+    end
+
+    local model, bossHumanoid, bossRoot = getSelectedBoss()
+    local fleeLimit = math.clamp(tonumber(Config.BossFleeHealth) or 40, 5, 90) / 100
+    local recoverAt = math.min(0.95, fleeLimit + 0.4)
+
+    -- Kacis / iyilesme durumu
+    if AutoState.bossMode ~= "retreat" then
+        local lowHealth = Config.BossFlee == true and hpFrac <= fleeLimit
+        local burst = Config.BossFlee == true and (AutoState.bossRecentDrop or 0) >= 0.25 and hpFrac < 0.8
+        local lowEnergy = Config.BossEnergy == true and maxEnergy > 0 and energy < math.max(3, maxEnergy * 0.06)
+        if lowHealth or burst or lowEnergy then
+            AutoState.bossMode = "retreat"
+            AutoState.bossRetreatAt = now
+            AutoState.bossRetreatReason = lowEnergy and not (lowHealth or burst) and "energy" or "health"
+            AutoState.bossLastMove = 0
+            notify(AutoState.bossRetreatReason == "energy" and "Out of energy: backing off to recharge." or "Low health: backing off from the boss.", "warn", 4)
+        end
+    end
+
+    if AutoState.bossMode == "retreat" then
+        local healthOk = Config.BossFlee ~= true or hpFrac >= recoverAt
+        local energyOk = Config.BossEnergy ~= true or energyFrac >= 0.6
+        AutoState.bossFarmEnergy = Config.BossEnergy == true and energyFrac < 0.6
+        AutoState.bossStatus = AutoState.bossRetreatReason == "energy" and "Recharging energy" or "Retreating"
+        local timedOut = now - (AutoState.bossRetreatAt or now) > 60
+        if (healthOk and energyOk and now - (AutoState.bossRetreatAt or now) > 2.5) or timedOut then
+            AutoState.bossMode = "fight"
+            AutoState.bossFarmEnergy = false
+            AutoState.bossLastMove = 0
+            AutoState.bossPhase = nil
+        else
+            -- boss'tan uzak bir yere cekil (bir kere ve uzaklasamazsa tekrar)
+            if bossRoot and now - (AutoState.bossLastMove or 0) > 1 then
+                local away = (bossRoot.Position - myRoot.Position).Magnitude
+                if away < 380 then
+                    bossJump(myRoot, model, bossSidePoint(bossRoot.Position, myRoot.Position, 450, 0), nil)
+                    AutoState.bossLastMove = now
+                end
+            end
+            return
+        end
+    end
+
+    AutoState.bossFarmEnergy = false
+
+    if not model or not bossHumanoid or not bossRoot then
+        -- Boss yok / oldu: normal farm devam etsin, yakindaki ganimeti topla
+        AutoState.bossMode = "idle"
+        AutoState.bossPhase = nil
+        AutoState.bossStatus = "Waiting for boss"
+        if Config.AutoCollect and Config.BossTP and now - (AutoState.lastDropTp or 0) > 1.2 then
+            local bestPos, bestDist
+            local serverNow = workspace:GetServerTimeNow()
+            for _, drop in pairs(drops) do
+                if drop.position and (not drop.expires or serverNow < drop.expires) then
+                    local d = (drop.position - myRoot.Position).Magnitude
+                    if d > 10 and d < 900 and (not bestDist or d < bestDist) then
+                        bestPos, bestDist = drop.position, d
+                    end
+                end
+            end
+            if bestPos then
+                AutoState.lastDropTp = now
+                Game.teleportTo(bestPos)
+                AutoState.bossStatus = "Picking up boss loot"
+            end
+        end
+        return
+    end
+
+    AutoState.bossMode = "fight"
+
+    local distance = (bossRoot.Position - myRoot.Position).Magnitude
+    local want = math.clamp(tonumber(Config.BossDistance) or 90, 30, 160)
+    local attackTime = math.clamp(tonumber(Config.BossAttackTime) or 3, 1, 15)
+    local fleeTime = math.clamp(tonumber(Config.BossFleeTime) or 2.5, 0.5, 15)
+    local fleeDist = math.clamp(tonumber(Config.BossFleeDistance) or 240, 100, 300)
+
+    -- Vur-kac dongusu: attack (yaklas + yetenek) -> flee (uzaklas, menzildeki yetenekle devam) -> attack ...
+    if not AutoState.bossPhase then
+        AutoState.bossPhase = "attack"
+        AutoState.bossPhaseAt = now
+        AutoState.bossApproached = false
+        AutoState.bossFled = false
+    end
+    if Config.BossTP then
+        local elapsed = now - (AutoState.bossPhaseAt or now)
+        if AutoState.bossPhase == "attack" and elapsed >= attackTime then
+            AutoState.bossPhase = "flee"
+            AutoState.bossPhaseAt = now
+            AutoState.bossFled = false
+        elseif AutoState.bossPhase == "flee" and elapsed >= fleeTime then
+            AutoState.bossPhase = "attack"
+            AutoState.bossPhaseAt = now
+            AutoState.bossApproached = false
+        end
+    else
+        AutoState.bossPhase = "attack"
+    end
+
+    if Config.BossTP then
+        if AutoState.bossPhase == "attack" then
+            local tooFar = distance > want + 40
+            local tooClose = distance < want - 40
+            local dodge = now - (AutoState.bossLastMove or 0) > 1.6
+            if (not AutoState.bossApproached or tooFar or tooClose or dodge) and now - (AutoState.bossLastMove or 0) > 0.4 then
+                AutoState.bossDodgeSign = -(AutoState.bossDodgeSign or 1)
+                local angle = (AutoState.bossApproached and dodge and not (tooFar or tooClose)) and math.rad(40) * AutoState.bossDodgeSign or 0
+                bossJump(myRoot, model, bossSidePoint(bossRoot.Position, myRoot.Position, want, angle), bossRoot.Position)
+                AutoState.bossApproached = true
+                AutoState.bossLastMove = now
+                distance = want
+            end
+            AutoState.bossStatus = "Attacking"
+        else
+            if not AutoState.bossFled then
+                AutoState.bossFled = true
+                AutoState.bossDodgeSign = -(AutoState.bossDodgeSign or 1)
+                bossJump(myRoot, model, bossSidePoint(bossRoot.Position, myRoot.Position, fleeDist, math.rad(25) * AutoState.bossDodgeSign), bossRoot.Position)
+                AutoState.bossLastMove = now
+                distance = fleeDist
+            end
+            AutoState.bossStatus = "Hit & run: backing off"
+        end
+    else
+        AutoState.bossStatus = distance > 320 and "Too far (turn on Teleport to Boss)" or "Fighting"
+    end
+
+    -- Yetenekler (kacarken de menzildeki yetenekle devam eder)
+    if Config.BossSkills then
+        local velocity = bossRoot.AssemblyLinearVelocity
+        local aim = bossRoot.Position + (velocity and velocity * 0.08 or Vector3.zero)
+        castBossSkills(aim)
+        if AutoState.bossPhase == "attack" and now - (AutoState.bossLastCast or 0) > 6 and now - (AutoState.bossPhaseAt or now) > 2 then
+            AutoState.bossStatus = "Attacking (no skill ready: check energy/equipped skill)"
+        end
+    else
+        AutoState.bossStatus = "Skills are off (turn on Use Skills on Boss)"
+    end
+end
 
 
 local function pvpStep()
@@ -5210,7 +5906,7 @@ local function pvpStep()
             AutoState.lastPvPFire = now
             Remote.fireRemote("PVP", character, false)
             AutoState.pvpFleeUntil = now + 10
-            notify("Can azaldı: PvP kapatıldı, 10 sn güvenli mod.", "warn", 4)
+            notify("Low health: PvP disabled, 10s safe mode.", "warn", 4)
         end
         return
     end
@@ -5269,7 +5965,7 @@ end
 local function promptStep()
     local function promptMatches(prompt, filter)
         if filter == "" then
-            return true
+            return false
         end
         local haystack = (prompt.Name .. " " .. tostring(prompt.ActionText) .. " " .. tostring(prompt.ObjectText)):lower()
         for token in string.gmatch(filter, "[^,]+") do
@@ -5289,7 +5985,17 @@ local function promptStep()
     end
     -- Sadece gorev otomasyonu aciksa sadece NPC gorev promptlarini kullan
     local questOnly = not Config.AutoPrompt and Config.AutoQuest == true
-    local filter = Config.PromptFilter or ""
+    local filterTokens = {}
+    if Config.PromptQuest ~= false then
+        filterTokens[#filterTokens + 1] = "FormQuest"
+    end
+    if Config.PromptBalls ~= false then
+        filterTokens[#filterTokens + 1] = "Ball,Dragon"
+    end
+    if Config.PromptChests ~= false then
+        filterTokens[#filterTokens + 1] = "Collect,Open"
+    end
+    local filter = table.concat(filterTokens, ",")
     local maxDistance = Config.PromptRange or 14
     local dropsFolder = workspace:FindFirstChild("LocalInventoryDrops")
 
@@ -5357,7 +6063,7 @@ local function lootStep()
             if itemId then
                 AutoState.lastBoostUse = os.clock()
                 if Remote.inventoryAction("Use", itemId) then
-                    notify("Otomatik boost kullanıldı: " .. itemId, "success", 4)
+                    notify("Auto boost used: " .. itemId, "success", 4)
                 end
             end
         end
@@ -5367,7 +6073,7 @@ local function lootStep()
         if itemQuantity("DragonRadar") > 0 and (tonumber(LocalPlayer:GetAttribute("DragonBallCount")) or 0) < 7 then
             AutoState.lastRadarUse = os.clock()
             if Remote.inventoryAction("Use", "DragonRadar") then
-                notify("Dragon Radar kullanıldı.", "info", 4)
+                notify("Dragon Radar used.", "info", 4)
             end
         end
     end
@@ -5377,7 +6083,7 @@ local function lootStep()
         if canCraft(Config.AutoCraft) and not isItemCrafted(Config.AutoCraft) then
             AutoState.lastCraftTry = os.clock()
             if Remote.inventoryAction("Craft", Config.AutoCraft) then
-                notify("Otomatik craft: " .. Config.AutoCraft, "success", 4)
+                notify("Auto craft: " .. Config.AutoCraft, "success", 4)
             end
         end
     end
@@ -5426,14 +6132,14 @@ local function updateStats()
     local function getAuraStatus()
         local character = Game.getCharacter()
         if not character then
-            return "Karakter yok"
+            return "No character"
         end
         if character:GetAttribute("FarmingAura") == true then
             return "Aura farm"
         elseif character:GetAttribute("FarmingEnergy") == true then
-            return "Enerji farm"
+            return "Energy farm"
         end
-        return "Beklemede"
+        return "Idle"
     end
     local aura = Game.readBig("Aura") or ZERO
     local cost = Game.readBig("NextRebirthCost") or ZERO
@@ -5456,8 +6162,8 @@ local function updateStats()
     local requiresSSJ1 = nextRebirthNeedsSSJ1()
 
     setLabel("farmAura", "Aura: " .. Format.formatBig(aura))
-    setLabel("farmEnergy", "Enerji: " .. Format.formatNumber(energy) .. " / " .. Format.formatNumber(maxEnergy))
-    setLabel("farmForce", "Aura/sn: " .. Format.formatBig(force))
+    setLabel("farmEnergy", "Energy: " .. Format.formatNumber(energy) .. " / " .. Format.formatNumber(maxEnergy))
+    setLabel("farmForce", "Aura/s: " .. Format.formatBig(force))
     local statusColor = Theme.Sub
     if character then
         if character:GetAttribute("FarmingAura") == true then
@@ -5470,29 +6176,29 @@ local function updateStats()
     if humanoid and humanoid.MaxHealth > 0 then
         healthText = "  |  Can: " .. string.format("%d%%", math.floor(humanoid.Health / humanoid.MaxHealth * 100))
     end
-    setLabel("farmStatus", "Durum: " .. getAuraStatus() .. "  |  Form: " .. form .. healthText, statusColor)
-    setLabel("farmEta", "Rebirth ETA: " .. (eta and Format.formatTime(eta) or "--"))
+    setLabel("farmStatus", "Status: " .. getAuraStatus() .. "  |  Form: " .. form .. healthText, statusColor)
+    setLabel("farmEta", "Rebirth ETA: " .. (eta and Format.formatTime(eta) or "N/A"))
 
     if Refs.farmProgress then
         Refs.farmProgress(progress, Format.formatBig(aura) .. " / " .. Format.formatBig(cost))
     end
 
     setLabel("rebirthCount", "Rebirth: " .. tostring(rebirths) .. " / " .. tostring(MAX_REBIRTHS))
-    setLabel("rebirthCost", "Sonraki maliyet: " .. (B.IsZero(cost) and "MAX" or Format.formatBig(cost)))
-    setLabel("rebirthForm", "Gereken form: " .. (requiresSSJ1 and "SSJ1" or "Base") .. "  (şu an: " .. form .. ")",
+    setLabel("rebirthCost", "Next cost: " .. (B.IsZero(cost) and "MAX" or Format.formatBig(cost)))
+    setLabel("rebirthForm", "Next rebirth form: " .. (requiresSSJ1 and "SSJ1" or "Base") .. "  (now: " .. form .. ")",
         (not requiresSSJ1 or form == "SSJ1") and Theme.Good or Theme.Bad)
-    setLabel("rebirthEta", "Tahmini süre: " .. (eta and Format.formatTime(eta) or "--"))
-    setLabel("rebirthMax", "Maksimum: " .. tostring(MAX_REBIRTHS) .. (rebirths >= MAX_REBIRTHS and "  (TAMAM)" or ""))
+    setLabel("rebirthEta", "Estimated time: " .. (eta and Format.formatTime(eta) or "N/A"))
+    setLabel("rebirthMax", "Max: " .. tostring(MAX_REBIRTHS) .. (rebirths >= MAX_REBIRTHS and "  (DONE)" or ""))
     if Refs.rebirthProgress then
         Refs.rebirthProgress(progress, Format.formatBig(aura) .. " / " .. Format.formatBig(cost))
     end
 
-    setLabel("zoneCurrent", "Mevcut zone: " .. zone)
-    setLabel("zoneMult", "Zone çarpanı: " .. (zoneMultiplier and ("x" .. Format.formatBig(zoneMultiplier)) or "--"))
+    setLabel("zoneCurrent", "Current zone: " .. zone)
+    setLabel("zoneMult", "Zone multiplier: " .. (zoneMultiplier and ("x" .. Format.formatBig(zoneMultiplier)) or "N/A"))
 
     for name, row in pairs(Refs.zoneRows) do
         local unlocked = isZoneUnlocked(name)
-        row.SetStatus(unlocked and "AÇIK" or "KİLİTLİ", unlocked and Theme.Good or Theme.Bad)
+        row.SetStatus(unlocked and "OPEN" or "LOCKED", unlocked and Theme.Good or Theme.Bad)
         row.SetActive(unlocked)
     end
 
@@ -5502,44 +6208,43 @@ local function updateStats()
         local bossDistance = myRoot and (bossRoot.Position - myRoot.Position).Magnitude or nil
         setLabel("bossStatus", "Boss: " .. bossModel.Name
             .. "  |  HP " .. Format.formatNumber(bossHumanoid.Health, 0) .. "/" .. Format.formatNumber(bossHumanoid.MaxHealth, 0)
-            .. (bossDistance and ("  |  " .. Format.formatDistance(bossDistance)) or ""),
-            bossHumanoid.Health > 0 and Theme.Warn or Theme.Sub)
+            .. (bossDistance and ("  |  " .. Format.formatDistance(bossDistance)) or "")
+            .. ((Config.AutoBoss and AutoState.bossStatus) and ("  |  " .. AutoState.bossStatus) or ""))
     else
-        setLabel("bossStatus", "Boss: --")
+        setLabel("bossStatus", "Boss: None")
     end
 
     local pvpEnabled = LocalPlayer:GetAttribute("PVPEnabled") == true
     local pvpState = LocalPlayer:GetAttribute("PVPState")
-    setLabel("pvpState", "PvP durumu: " .. (pvpEnabled and "AÇIK" or "kapalı") .. "  |  " .. tostring(pvpState or "--"),
-        pvpEnabled and Theme.Good or Theme.Sub)
+    setLabel("pvpState", "PvP: " .. (pvpEnabled and "Enabled" or "Disabled"))
     local targetPlayer, targetRoot, _, targetDistance = getNearestPvPTarget(2000, true)
     if not targetPlayer then
         targetPlayer, targetRoot, _, targetDistance = getNearestPvPTarget(2000, false)
     end
     if targetPlayer and targetDistance then
-        setLabel("pvpTarget", "Hedef: " .. targetPlayer.Name .. "  |  " .. Format.formatDistance(targetDistance))
+        setLabel("pvpTarget", "Target: " .. targetPlayer.Name .. "  |  " .. Format.formatDistance(targetDistance))
     else
-        setLabel("pvpTarget", "Hedef: --")
+        setLabel("pvpTarget", "Target: None")
     end
-    setLabel("pvpKills", "Kill: " .. Format.formatBig(kills))
+    setLabel("pvpKills", "Kills: " .. Format.formatBig(kills))
 
     local dropCount = 0
     for _ in pairs(drops) do
         dropCount = dropCount + 1
     end
-    setLabel("dropCount", "Takip edilen ganimet: " .. tostring(dropCount))
+    setLabel("dropCount", "Tracked loot: " .. tostring(dropCount))
 
     local ballCount = tonumber(LocalPlayer:GetAttribute("DragonBallCount")) or 0
     local canSummon = LocalPlayer:GetAttribute("WishCanSummon") == true
     local cooldownUntil = LocalPlayer:GetAttribute("WishSummonCooldownUntil")
     local cooldown = type(cooldownUntil) == "number" and math.max(0, cooldownUntil - workspace:GetServerTimeNow()) or 0
-    setLabel("wish", "Dragon Ball: " .. tostring(ballCount) .. "/7  |  " .. (canSummon and "Çağırılabilir" or (cooldown > 0 and ("Bekleme: " .. Format.formatTime(cooldown)) or "Hazır değil")))
+    setLabel("wish", "Dragon Ball: " .. tostring(ballCount) .. "/7  |  " .. (canSummon and "Ready to summon" or (cooldown > 0 and ("Cooldown: " .. Format.formatTime(cooldown)) or "Not ready")))
     local energyClaimed = LocalPlayer:GetAttribute("WishEnergyClaimed")
     local auraClaimed = LocalPlayer:GetAttribute("WishAuraClaimed")
     local rebirthAvailable = LocalPlayer:GetAttribute("WishRebirthAvailable")
-    setLabel("wishClaim", "Dilek: Enerji " .. (energyClaimed == false and "uygun" or "alındı")
-        .. " | Aura " .. (auraClaimed == false and "uygun" or "alındı")
-        .. " | Rebirth " .. (rebirthAvailable == true and "uygun" or "yok"))
+    setLabel("wishClaim", "Wish: Energy " .. (energyClaimed == false and "available" or "claimed")
+        .. " | Aura " .. (auraClaimed == false and "available" or "claimed")
+        .. " | Rebirth " .. (rebirthAvailable == true and "available" or "none"))
 
     if inventoryState then
         local totalItems = 0
@@ -5553,11 +6258,11 @@ local function updateStats()
                 table.insert(equippedNames, config and config.Name or itemId)
             end
         end
-        setLabel("inventoryInfo", "Eşya: " .. tostring(totalItems) .. "  |  Kuşanılan: " .. (#equippedNames > 0 and table.concat(equippedNames, ", ") or "yok"))
-        setLabel("gearInfo", "Ekipman: " .. (Config.AutoGear and "otomatik" or "manuel") .. "  |  Öncelik: " .. Config.GearStat)
+        setLabel("inventoryInfo", "Items: " .. tostring(totalItems) .. "  |  Equipped: " .. (#equippedNames > 0 and table.concat(equippedNames, ", ") or "none"))
+        setLabel("gearInfo", "Equipment: " .. (Config.AutoGear and "auto" or "manual") .. "  |  Priority: " .. Config.GearStat)
     else
-        setLabel("inventoryInfo", "Eşya: envanter bekleniyor...")
-        setLabel("gearInfo", "Ekipman: envanter bekleniyor...")
+        setLabel("inventoryInfo", "Items: waiting for inventory...")
+        setLabel("gearInfo", "Equipment: waiting for inventory...")
     end
 
     if Config.HUD and hudFrame then
@@ -5582,7 +6287,7 @@ local function safeCall(name, callback)
     local ok, err = pcall(callback)
     if not ok and not loggedErrors[name] then
         loggedErrors[name] = true
-        log(name .. " hatası: " .. tostring(err))
+        log(name .. " error: " .. tostring(err))
     end
 end
 
@@ -5652,7 +6357,7 @@ end)
 task.spawn(function()
     while not unloaded do
         safeCall("boss", bossStep)
-        task.wait(0.5)
+        task.wait(0.15)
     end
 end)
 
@@ -5663,12 +6368,24 @@ task.spawn(function()
     end
 end)
 
+task.spawn(function()
+    while not unloaded do
+        if Config.SpeedBoost == true then
+            local h = Game.getHumanoid()
+            local s = tonumber(Config.WalkSpeed) or 16
+            if h and h.WalkSpeed ~= s then
+                h.WalkSpeed = s
+            end
+        end
+        task.wait(0.4)
+    end
+end)
+
 -- ================================================================
 -- ESP
 -- ================================================================
 
 local ESP = {
-    players = {},
     bosses = {},
     drops = {},
     balls = {},
@@ -5679,42 +6396,8 @@ pcall(function()
     ESP.drawingOk = Drawing ~= nil and type(Drawing.new) == "function"
 end)
 
-local function makeHighlight(model, fillColor, outlineColor)
-    local highlight = Instance.new("Highlight")
-    highlight.Name = "AuraX_ESP"
-    highlight.Adornee = model
-    highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-    highlight.FillColor = fillColor
-    highlight.FillTransparency = 0.82
-    highlight.OutlineColor = outlineColor
-    highlight.OutlineTransparency = 0.1
-    highlight.Parent = model
-    return highlight
-end
-
-local function makeBillboard(part, color, offsetY)
-    local billboard = Instance.new("BillboardGui")
-    billboard.Name = "AuraX_ESP_Label"
-    billboard.Adornee = part
-    billboard.Size = UDim2.fromOffset(200, 34)
-    billboard.StudsOffsetWorldSpace = Vector3.new(0, offsetY or 2.4, 0)
-    billboard.AlwaysOnTop = true
-    billboard.LightInfluence = 0
-    billboard.MaxDistance = tonumber(Config.ESPMaxDistance) or 1500
-
-    local label = Instance.new("TextLabel")
-    label.Size = UDim2.fromScale(1, 1)
-    label.BackgroundTransparency = 1
-    label.Font = Enum.Font.GothamBold
-    label.TextSize = 12
-    label.TextColor3 = color
-    label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
-    label.TextStrokeTransparency = 0.25
-    label.Text = ""
-    label.Parent = billboard
-
-    billboard.Parent = part
-    return billboard, label
+local function espRange()
+    return tonumber(Config.ESPMaxDistance) or 1500
 end
 
 local function makeTracer(color)
@@ -5723,9 +6406,9 @@ local function makeTracer(color)
     end
     local ok, line = pcall(function()
         local object = Drawing.new("Line")
-        object.Thickness = 1.6
+        object.Thickness = 1.5
         object.Color = color
-        object.Transparency = 0.72
+        object.Transparency = 0.8
         object.Visible = false
         return object
     end)
@@ -5759,93 +6442,130 @@ local function disposeEntry(entry)
     end
 end
 
-local function updateTracer(entry, worldPosition, camera)
-    if not entry.tracer then
-        return
+-- Aurora kart stilinde ESP girdisi: parlama + isim/mesafe/can karti + tracer
+local function makeEntry(spec)
+    local entry = { adornee = spec.adornee, model = spec.model, tracerPart = spec.adornee, tracerOffset = spec.tracerOffset or 0 }
+    if spec.model then
+        entry.highlight = new("Highlight", {
+            Name = "AuroraX_ESP",
+            Adornee = spec.model,
+            DepthMode = Enum.HighlightDepthMode.AlwaysOnTop,
+            FillColor = spec.color,
+            FillTransparency = 0.8,
+            OutlineColor = spec.color,
+            OutlineTransparency = 0.05,
+        })
+        entry.highlight.Parent = spec.model
     end
-    if not (Config.ESPTracers and ESP.drawingOk) then
-        entry.tracer.Visible = false
-        return
+
+    local bb = new("BillboardGui", {
+        Name = "AuroraX_ESP_Label",
+        Adornee = spec.adornee,
+        Size = UDim2.fromOffset(190, 70),
+        StudsOffsetWorldSpace = Vector3.new(0, spec.offsetY or 2.4, 0),
+        AlwaysOnTop = true,
+        LightInfluence = 0,
+        MaxDistance = espRange(),
+    })
+    local card = new("Frame", {
+        AnchorPoint = Vector2.new(0.5, 1),
+        Position = UDim2.fromScale(0.5, 1),
+        Size = UDim2.fromOffset(0, 0),
+        AutomaticSize = Enum.AutomaticSize.XY,
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+    }, {
+        pad(4, 2, 4, 2),
+        new("UIListLayout", {
+            Padding = UDim.new(0, 2),
+            SortOrder = Enum.SortOrder.LayoutOrder,
+            HorizontalAlignment = Enum.HorizontalAlignment.Center,
+        }),
+    })
+    entry.stroke = new("UIStroke", { Color = spec.color, Thickness = 0, Transparency = 1, Enabled = false, ApplyStrokeMode = Enum.ApplyStrokeMode.Border })
+    entry.stroke.Parent = card
+    card.Parent = bb
+
+    entry.nameL = new("TextLabel", {
+        BackgroundTransparency = 1, AutomaticSize = Enum.AutomaticSize.XY, Size = UDim2.fromOffset(0, 16),
+        Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = T.text, TextStrokeColor3 = Color3.new(0, 0, 0), TextStrokeTransparency = 0.25, LayoutOrder = 1, Text = "",
+    })
+    entry.nameL.Parent = card
+    entry.distL = new("TextLabel", {
+        BackgroundTransparency = 1, AutomaticSize = Enum.AutomaticSize.XY, Size = UDim2.fromOffset(0, 13),
+        Font = Enum.Font.GothamMedium, TextSize = 11, TextColor3 = Color3.fromRGB(215, 220, 235), TextStrokeColor3 = Color3.new(0, 0, 0), TextStrokeTransparency = 0.3, LayoutOrder = 2, Text = "",
+    })
+    entry.distL.Parent = card
+    entry.barTrack = new("Frame", {
+        Size = UDim2.fromOffset(96, 5), BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.45, BorderSizePixel = 0, LayoutOrder = 3, Visible = false,
+    }, { corner(3) })
+    entry.barTrack.Parent = card
+    entry.barFill = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0 }, { corner(3) })
+    entry.barFill.Parent = entry.barTrack
+
+    bb.Parent = spec.adornee
+    entry.billboard = bb
+    entry.tracer = makeTracer(spec.color)
+    return entry
+end
+
+local function espPaint(entry, spec)
+    local color = spec.color
+    local size = math.clamp(tonumber(Config.ESPTextSize) or 12, 9, 20)
+    local labels = Config.ESPNames ~= false
+    entry.billboard.Enabled = true
+    entry.billboard.MaxDistance = espRange()
+    entry.nameL.TextColor3 = color
+    entry.nameL.Visible = labels
+    entry.nameL.Text = spec.name or ""
+    entry.nameL.TextSize = size
+    entry.distL.Visible = labels
+    entry.distL.Text = Format.formatDistance(spec.distance)
+    entry.distL.TextSize = math.max(8, size - 1)
+    local showHealth = spec.hp ~= nil and Config.ESPHealth ~= false
+    entry.barTrack.Visible = showHealth
+    if showHealth then
+        local hp = math.clamp(spec.hp, 0, 1)
+        entry.barFill.Size = UDim2.fromScale(hp, 1)
+        entry.barFill.BackgroundColor3 = Color3.fromHSV(hp * 0.33, 0.75, 1)
     end
-    local screen, onScreen = camera:WorldToViewportPoint(worldPosition)
-    if onScreen and screen.Z > 0 then
-        local viewport = camera.ViewportSize
-        entry.tracer.From = Vector2.new(viewport.X * 0.5, viewport.Y)
-        entry.tracer.To = Vector2.new(screen.X, screen.Y)
-        entry.tracer.Visible = true
-    else
-        entry.tracer.Visible = false
+    if entry.highlight then
+        entry.highlight.Enabled = Config.ESPHighlight ~= false
+        entry.highlight.FillColor = color
+        entry.highlight.OutlineColor = color
+        entry.highlight.FillTransparency = math.clamp(tonumber(Config.ESPFill) or 0.8, 0, 1)
+    end
+    if entry.tracer then
+        entry.tracer.Color = color
     end
 end
 
-local function updatePlayerESP(camera, myRoot)
-    if Config.ESPPlayers ~= true and next(ESP.players) == nil then
+local function espShow(store, key, spec)
+    local entry = store[key]
+    if entry and (entry.adornee ~= spec.adornee or entry.model ~= spec.model or not entry.billboard) then
+        disposeEntry(entry)
+        entry = nil
+    end
+    if not entry then
+        entry = makeEntry(spec)
+        store[key] = entry
+    end
+    espPaint(entry, spec)
+end
+
+local function espHide(store, key)
+    local entry = store[key]
+    if not entry then
         return
     end
-    -- Ayrilan oyunculari temizle
-    for player, entry in pairs(ESP.players) do
-        if not player.Parent then
-            disposeEntry(entry)
-            ESP.players[player] = nil
-        end
+    if entry.highlight then
+        entry.highlight.Enabled = false
     end
-
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer then
-            local character = player.Character
-            local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-            local root = character and character:FindFirstChild("HumanoidRootPart")
-            local head = character and (character:FindFirstChild("Head") or root)
-            local distance = root and myRoot and (root.Position - myRoot.Position).Magnitude
-            local enabled = Config.ESPPlayers == true
-                and character ~= nil
-                and humanoid ~= nil
-                and humanoid.Health > 0
-                and head ~= nil
-                and distance ~= nil
-                and distance <= (tonumber(Config.ESPMaxDistance) or 1500)
-
-            if enabled then
-                local entry = ESP.players[player]
-                if not entry or entry.model ~= character then
-                    disposeEntry(entry)
-                    local color = player:GetAttribute("PVPEnabled") == true and Theme.Bad or Theme.Accent2
-                    entry = {
-                        model = character,
-                        highlight = makeHighlight(character, color, color),
-                        billboard = nil,
-                        label = nil,
-                        tracer = makeTracer(color),
-                    }
-                    entry.billboard, entry.label = makeBillboard(head, color, 2.3)
-                    ESP.players[player] = entry
-                end
-                local pvpEnabled = player:GetAttribute("PVPEnabled") == true
-                local color = pvpEnabled and Theme.Bad or Theme.Accent2
-                entry.highlight.Enabled = true
-                entry.highlight.FillColor = color
-                entry.highlight.OutlineColor = color
-                entry.billboard.Enabled = true
-                entry.billboard.MaxDistance = tonumber(Config.ESPMaxDistance) or 1500
-                entry.label.TextColor3 = color
-                local healthPercent = humanoid.MaxHealth > 0 and math.floor(humanoid.Health / humanoid.MaxHealth * 100) or 0
-                entry.label.Text = string.format("%s  %d%%  |  %s", player.Name, healthPercent, Format.formatDistance(distance))
-                updateTracer(entry, (head.Position + Vector3.new(0, 2, 0)), camera)
-            else
-                local entry = ESP.players[player]
-                if entry then
-                    if entry.highlight then
-                        entry.highlight.Enabled = false
-                    end
-                    if entry.billboard then
-                        entry.billboard.Enabled = false
-                    end
-                    if entry.tracer then
-                        entry.tracer.Visible = false
-                    end
-                end
-            end
-        end
+    if entry.billboard then
+        entry.billboard.Enabled = false
+    end
+    if entry.tracer then
+        entry.tracer.Visible = false
     end
 end
 
@@ -5872,39 +6592,20 @@ local function updateBossESP(camera, myRoot)
                 and humanoid.Health > 0
                 and head ~= nil
                 and distance ~= nil
-                and distance <= (tonumber(Config.ESPMaxDistance) or 1500)
-
+                and distance <= espRange()
             if enabled then
-                local entry = ESP.bosses[model]
-                if not entry or entry.head ~= head then
-                    disposeEntry(entry)
-                    entry = {
-                        head = head,
-                        highlight = makeHighlight(model, Theme.Warn, Theme.Warn),
-                        tracer = makeTracer(Theme.Warn),
-                    }
-                    entry.billboard, entry.label = makeBillboard(head, Theme.Warn, 3.2)
-                    ESP.bosses[model] = entry
-                end
-                entry.highlight.Enabled = true
-                entry.billboard.Enabled = true
-                entry.billboard.MaxDistance = tonumber(Config.ESPMaxDistance) or 1500
-                local healthPercent = humanoid.MaxHealth > 0 and math.floor(humanoid.Health / humanoid.MaxHealth * 100) or 0
-                entry.label.Text = string.format("%s  %d%%  |  %s", string.upper(boss.name), healthPercent, Format.formatDistance(distance))
-                updateTracer(entry, head.Position + Vector3.new(0, 3, 0), camera)
+                espShow(ESP.bosses, model, {
+                    adornee = head,
+                    model = model,
+                    offsetY = 3.2,
+                    tracerOffset = 2,
+                    name = string.upper(boss.name),
+                    hp = humanoid.MaxHealth > 0 and humanoid.Health / humanoid.MaxHealth or 0,
+                    color = ESPCol.Boss,
+                    distance = distance,
+                })
             else
-                local entry = ESP.bosses[model]
-                if entry then
-                    if entry.highlight then
-                        entry.highlight.Enabled = false
-                    end
-                    if entry.billboard then
-                        entry.billboard.Enabled = false
-                    end
-                    if entry.tracer then
-                        entry.tracer.Visible = false
-                    end
-                end
+                espHide(ESP.bosses, model)
             end
         end
     end
@@ -5923,10 +6624,8 @@ local function updateDropESP(camera, myRoot)
 
     local folder = workspace:FindFirstChild("LocalInventoryDrops")
     if not folder or Config.ESPDrops ~= true then
-        for _, entry in pairs(ESP.drops) do
-            if entry.billboard then
-                entry.billboard.Enabled = false
-            end
+        for part in pairs(ESP.drops) do
+            espHide(ESP.drops, part)
         end
         return
     end
@@ -5934,19 +6633,16 @@ local function updateDropESP(camera, myRoot)
     for _, part in ipairs(folder:GetChildren()) do
         if part:IsA("BasePart") then
             local distance = myRoot and (part.Position - myRoot.Position).Magnitude or nil
-            local enabled = distance ~= nil and distance <= (tonumber(Config.ESPMaxDistance) or 1500)
-            local entry = ESP.drops[part]
-            if enabled then
-                if not entry then
-                    entry = {}
-                    entry.billboard, entry.label = makeBillboard(part, Theme.Good, 1.8)
-                    ESP.drops[part] = entry
-                end
-                entry.billboard.Enabled = true
-                entry.billboard.MaxDistance = tonumber(Config.ESPMaxDistance) or 1500
-                entry.label.Text = part.Name .. "  |  " .. Format.formatDistance(distance)
-            elseif entry and entry.billboard then
-                entry.billboard.Enabled = false
+            if distance ~= nil and distance <= espRange() then
+                espShow(ESP.drops, part, {
+                    adornee = part,
+                    offsetY = 1.8,
+                    name = part.Name,
+                    color = ESPCol.Drop,
+                    distance = distance,
+                })
+            else
+                espHide(ESP.drops, part)
             end
         end
     end
@@ -5965,10 +6661,8 @@ local function updateBallESP(camera, myRoot)
 
     local folder = workspace:FindFirstChild("DragonBallRuntime")
     if not folder or Config.ESPBalls ~= true then
-        for _, entry in pairs(ESP.balls) do
-            if entry.billboard then
-                entry.billboard.Enabled = false
-            end
+        for model in pairs(ESP.balls) do
+            espHide(ESP.balls, model)
         end
         return
     end
@@ -5977,54 +6671,29 @@ local function updateBallESP(camera, myRoot)
         if model:IsA("Model") then
             local pivot = model:GetPivot().Position
             local distance = myRoot and (pivot - myRoot.Position).Magnitude or nil
-            local enabled = distance ~= nil and distance <= (tonumber(Config.ESPMaxDistance) or 1500)
             local part = model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart", true)
-            local entry = ESP.balls[model]
-            if enabled and part then
-                if not entry or entry.part ~= part then
-                    disposeEntry(entry)
-                    entry = {
-                        part = part,
-                        highlight = makeHighlight(model, Theme.Warn, Theme.Accent2),
-                        tracer = makeTracer(Theme.Warn),
-                    }
-                    entry.billboard, entry.label = makeBillboard(part, Theme.Warn, 2.5)
-                    ESP.balls[model] = entry
-                end
-                entry.highlight.Enabled = true
-                entry.billboard.Enabled = true
-                entry.billboard.MaxDistance = tonumber(Config.ESPMaxDistance) or 1500
-                entry.label.Text = "DRAGON BALL  |  " .. Format.formatDistance(distance)
-                updateTracer(entry, pivot, camera)
-            elseif entry then
-                if entry.highlight then
-                    entry.highlight.Enabled = false
-                end
-                if entry.billboard then
-                    entry.billboard.Enabled = false
-                end
-                if entry.tracer then
-                    entry.tracer.Visible = false
-                end
+            if distance ~= nil and distance <= espRange() and part then
+                espShow(ESP.balls, model, {
+                    adornee = part,
+                    model = model,
+                    offsetY = 2.5,
+                    name = "DRAGON BALL",
+                    color = ESPCol.Ball,
+                    distance = distance,
+                })
+            else
+                espHide(ESP.balls, model)
             end
         end
     end
 end
 
 local function cleanupESP()
-    for _, entry in pairs(ESP.players) do
-        disposeEntry(entry)
+    for _, store in ipairs({ ESP.bosses, ESP.drops, ESP.balls }) do
+        for _, entry in pairs(store) do
+            disposeEntry(entry)
+        end
     end
-    for _, entry in pairs(ESP.bosses) do
-        disposeEntry(entry)
-    end
-    for _, entry in pairs(ESP.drops) do
-        disposeEntry(entry)
-    end
-    for _, entry in pairs(ESP.balls) do
-        disposeEntry(entry)
-    end
-    ESP.players = {}
     ESP.bosses = {}
     ESP.drops = {}
     ESP.balls = {}
@@ -6036,10 +6705,6 @@ local function espStep()
     if not camera or not myRoot then
         return
     end
-
-    safeCall("esp_players", function()
-        updatePlayerESP(camera, myRoot)
-    end)
     safeCall("esp_bosses", function()
         updateBossESP(camera, myRoot)
     end)
@@ -6049,40 +6714,46 @@ local function espStep()
     safeCall("esp_balls", function()
         updateBallESP(camera, myRoot)
     end)
+end
 
-    local players, bosses, dropCount, balls = 0, 0, 0, 0
-    for _, entry in pairs(ESP.players) do
-        if entry.billboard and entry.billboard.Enabled then
-            players = players + 1
+-- Tracer cizgileri her karede guncellenir (akici takip)
+local function tracerFrame()
+    local camera = workspace.CurrentCamera
+    local show = camera ~= nil and Config.ESPTracers == true and ESP.drawingOk
+    local viewport = camera and camera.ViewportSize or Vector2.new(0, 0)
+    local origin = Config.ESPTracerOrigin
+    local y = origin == "Top" and 0 or (origin == "Center" and viewport.Y * 0.5 or viewport.Y)
+    local from = Vector2.new(viewport.X * 0.5, y)
+    for _, store in ipairs({ ESP.bosses, ESP.drops, ESP.balls }) do
+        for _, entry in pairs(store) do
+            local tracer = entry.tracer
+            if tracer then
+                local part = entry.tracerPart
+                if show and part and part.Parent and entry.billboard and entry.billboard.Enabled then
+                    local screen, onScreen = camera:WorldToViewportPoint(part.Position + Vector3.new(0, entry.tracerOffset or 0, 0))
+                    if onScreen and screen.Z > 0 then
+                        tracer.From = from
+                        tracer.To = Vector2.new(screen.X, screen.Y)
+                        tracer.Visible = true
+                    else
+                        tracer.Visible = false
+                    end
+                else
+                    tracer.Visible = false
+                end
+            end
         end
-    end
-    for _, entry in pairs(ESP.bosses) do
-        if entry.billboard and entry.billboard.Enabled then
-            bosses = bosses + 1
-        end
-    end
-    for _, entry in pairs(ESP.drops) do
-        if entry.billboard and entry.billboard.Enabled then
-            dropCount = dropCount + 1
-        end
-    end
-    for _, entry in pairs(ESP.balls) do
-        if entry.billboard and entry.billboard.Enabled then
-            balls = balls + 1
-        end
-    end
-
-    if Config.ESPPlayers or Config.ESPBosses or Config.ESPDrops or Config.ESPBalls then
-        setLabel("espInfo", string.format("ESP: %d oyuncu | %d boss | %d ganimet | %d top", players, bosses, dropCount, balls))
-    else
-        setLabel("espInfo", "ESP: kapalı")
     end
 end
+
+track(RunService.RenderStepped:Connect(function()
+    pcall(tracerFrame)
+end))
 
 task.spawn(function()
     while not unloaded do
         safeCall("esp", espStep)
-        task.wait(0.25)
+        task.wait(0.15)
     end
 end)
 
@@ -6122,16 +6793,9 @@ unload = function()
         hudFrame = nil
     end
 
-    log("Hub kaldırıldı.")
+    log("Hub unloaded.")
 end
 
-track(Players.PlayerRemoving:Connect(function(player)
-    local entry = ESP.players[player]
-    if entry then
-        disposeEntry(entry)
-        ESP.players[player] = nil
-    end
-end))
 
 track(LocalPlayer.CharacterAdded:Connect(function()
     task.delay(2, function()
@@ -6144,10 +6808,23 @@ track(LocalPlayer.CharacterAdded:Connect(function()
         end
         local targetSpeed = tonumber(Config.WalkSpeed)
         local humanoid = Game.getHumanoid()
-        if humanoid and targetSpeed and targetSpeed ~= 16 then
+        if humanoid and Config.SpeedBoost == true and targetSpeed and targetSpeed ~= 16 then
             humanoid.WalkSpeed = targetSpeed
         end
     end)
+end))
+
+-- Boss: olunce biraz aura topla, sonra saldirmaya don
+track(LocalPlayer.CharacterAdded:Connect(function()
+    if Config.AutoBoss then
+        local wait = math.clamp(tonumber(Config.BossRespawnWait) or 0, 0, 300)
+        AutoState.bossPhase = nil
+        AutoState.bossMode = nil
+        if wait > 0 then
+            AutoState.bossResumeAt = os.clock() + wait + 2
+            notify("You died: collecting aura for " .. tostring(wait) .. "s before going back to the boss.", "info", 5)
+        end
+    end
 end))
 
 -- Anti-AFK
@@ -6167,15 +6844,15 @@ task.delay(0.8, function()
     if unloaded then
         return
     end
-    notify("Aura X Hub v" .. VERSION .. " yüklendi. RightShift veya Aurora butonuyla aç/kapat.", "success", 6)
-    log("Aura X Hub v" .. VERSION .. " yüklendi.")
+    notify("Aurora X loaded. Press RightShift or use the launcher button to open/close.", "success", 6)
+    log("Aurora X v" .. VERSION .. " loaded.")
 end)
 --[[AURAX_END]]
 return { unload = unload, addSettings = addSettingsSection }
 end
 
 
-local Window = Aurora:CreateWindow("Aura X Hub", "v1.0")
+local Window = Aurora:CreateWindow("Aurora X", "v2.0 - Premium Edition")
 
 
 -- 1. HOME SEKME
@@ -6191,8 +6868,8 @@ hCredits:AddCredit("3qr311", "Scripter")
 -- AURA X SEKMELERI (Farm, Rebirth, Zone, Ganimet, PvP, ESP, Araclar)
 local okAX, AX = pcall(startAuraX, Window)
 if not okAX then
-	warn("[AuraX Hub] hata: " .. tostring(AX))
-	Aurora:Notify("Aura X", "Yuklenirken hata: " .. tostring(AX), 10, "error")
+	warn("[Aurora X] error: " .. tostring(AX))
+	Aurora:Notify("Aurora X", "Load error: " .. tostring(AX), 10, "error")
 	AX = { unload = function() end, addSettings = function() end }
 end
 gui.Destroying:Connect(function()
@@ -6234,14 +6911,19 @@ end)
 -- 7. SETTINGS SEKME
 local Settings = Window:AddTab("Settings", "o")
 local s1 = Settings:AddSection("Appearance & Scale")
-s1:AddDropdown("Theme", { "Violet", "Ocean", "Mint", "Rose", "Amber", "Crimson", "Red", "Orange", "Gold", "Lime", "Emerald", "Teal", "Cyan", "Sky", "Blue", "Indigo", "Purple", "Magenta", "Pink", "Silver", "White" }, "Violet", function(o) Aurora:SetAccent(o, true) end)
-s1:AddColorPicker("Custom accent", ACCENTS.Violet, function(c) Aurora:SetAccent(c, true) end)
-s1:AddToggle("Rainbow Accent", false, function(on)
+local rainbowT
+local function stopRainbow()
+	if isRainbowAccent and rainbowT then rainbowT.Set(false) end
+end
+s1:AddDropdown("Theme", { "Violet", "Ocean", "Mint", "Rose", "Amber", "Crimson", "Red", "Orange", "Gold", "Lime", "Emerald", "Teal", "Cyan", "Sky", "Blue", "Indigo", "Purple", "Magenta", "Pink", "Silver", "White" }, "Violet", function(o) stopRainbow() Aurora:SetAccent(o, true) end)
+s1:AddColorPicker("Custom accent", ACCENTS.Violet, function(c) stopRainbow() Aurora:SetAccent(c, true) end)
+rainbowT = s1:AddToggle("Rainbow Accent", false, function(on)
 	isRainbowAccent = on
 	if not on then
 		Aurora:SetAccent(savedAccent, false)
 	end
 end)
+Aurora.RainbowOff = function() pcall(rainbowT.Set, false) end
 s1:AddSlider("Menu Scale (Size)", 0.4, 1.5, ((UIS.TouchEnabled and not UIS.MouseEnabled) and 0.65 or 0.85), function(v)
 	Aurora:SetMenuScale(v)
 end, 0.05)
