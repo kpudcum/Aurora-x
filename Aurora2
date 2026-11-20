@@ -2965,6 +2965,7 @@ local DEFAULTS = {
     BossEnergy = false,
     BossFleeHealth = 40,
     BossDistance = 90,
+    BossHeight = 28,
     PromptQuest = true,
     PromptBalls = true,
     PromptChests = true,
@@ -4031,6 +4032,7 @@ makeToggle(cA, "Use Skills on Boss", "BossSkills", enforceBossPrereqsOnDisable)
 makeToggle(cA, "Flee on Low Health", "BossFlee")
 makeToggle(cA, "Recharge Energy When Low", "BossEnergy", enforceBossPrereqsOnDisable)
 makeSlider(cA, "Fight Distance (m)", "BossDistance", 30, 160, 5)
+makeSlider(cA, "Flight Height (m)", "BossHeight", 0, 150, 2)
 makeSlider(cA, "Flee Health (%)", "BossFleeHealth", 10, 80, 5)
 makeButton(cA, "Teleport to Selected Boss", function()
     if Actions.bossTeleport then
@@ -5059,6 +5061,11 @@ local function farmStep()
         wantEnergy = false
     end
 
+    -- Boss botu Lobby'de enerji sarj ediyorsa farmStep karismasin (StopFarmEnergy atmasin)
+    if Config.AutoBoss and AutoState.bossMode == "energy_recharge" then
+        return
+    end
+
     -- Boss botu enerji yenilemek isterse enerji farmi oncelikli
     if AutoState.bossFarmEnergy and canFarmEnergy then
         wantEnergy = true
@@ -5241,8 +5248,10 @@ end
 
 
 -- ================================================================
--- BOSS BOTU: 2x Space -> 2s Aura -> TP -> F (AimLock) -> R (Skill) -> Yerin Dibi -> Cooldown bitince tekrar
--- Dusuk can (Flee on Low Health) aciksa can dusunce direkt yerin dibine girer
+-- BOSS BOTU (SIFIRDAN YENIDEN YAZILDI)
+-- Akis: 2x Space (Ucus) -> 1s Aura -> Yuksek Irtifa Acik Hava Kite
+-- (+28 stud yuksek, 115-140 stud mesafe, Boss Ultisinde Ters Yone Kacis + Direkt Skill)
+-- Enerji 0 olunca Lobby Floor'da %100 sarj; UI'ya dokunulmaz.
 -- ================================================================
 local VirtualInputManager
 pcall(function()
@@ -5256,7 +5265,7 @@ local function bossPressKey(keyCode, holdTime)
     local ok = pcall(function()
         VirtualInputManager:SendKeyEvent(true, keyCode, false, game)
     end)
-    task.wait(holdTime or 0.05)
+    task.wait(holdTime or 0.04)
     pcall(function()
         VirtualInputManager:SendKeyEvent(false, keyCode, false, game)
     end)
@@ -5289,83 +5298,59 @@ local function bossFocusTarget(myRoot, bossRoot)
         local p = myRoot.Position
         myRoot.AssemblyLinearVelocity = Vector3.zero
         myRoot.AssemblyAngularVelocity = Vector3.zero
-        myRoot.CFrame = CFrame.lookAt(p, Vector3.new(targetPos.X, p.Y, targetPos.Z))
+        myRoot.CFrame = CFrame.lookAt(p, targetPos)
     end)
     pcall(function()
         local cam = workspace.CurrentCamera
         if cam then
             local dir = targetPos - myRoot.Position
             local back = dir.Magnitude > 1 and dir.Unit or Vector3.new(0, 0, 1)
-            local camPos = myRoot.Position - back * 10 + Vector3.new(0, 4, 0)
+            local camPos = myRoot.Position - back * 12 + Vector3.new(0, 4, 0)
             cam.CFrame = CFrame.lookAt(camPos, targetPos)
         end
     end)
 end
 
-local function bossGetSkillCooldownLeft(character)
-    local serverNow = workspace:GetServerTimeNow()
-    local equipped = LocalPlayer:GetAttribute("EquippedPlayerSkill")
-    if equipped and type(equipped) == "string" and equipped ~= "" then
-        local nextCast = LocalPlayer:GetAttribute("Skill_" .. equipped .. "_NextCastAt")
-        if type(nextCast) == "number" and nextCast > serverNow then
-            return nextCast - serverNow
-        end
-        return 0
-    end
-    local bestLeft = math.huge
-    for _, name in ipairs(SKILL_ORDER) do
-        if character and character:GetAttribute("Skill_" .. name .. "_Unlocked") == true then
-            local nextCast = LocalPlayer:GetAttribute("Skill_" .. name .. "_NextCastAt")
-            local left = (type(nextCast) == "number" and nextCast > serverNow) and (nextCast - serverNow) or 0
-            if left < bestLeft then
-                bestLeft = left
-            end
-        end
-    end
-    if bestLeft == math.huge then
-        return 0
-    end
-    return bestLeft
-end
-
-local function bossGround(position, ignoreList)
-    local params = RaycastParams.new()
-    params.FilterType = Enum.RaycastFilterType.Exclude
-    params.FilterDescendantsInstances = ignoreList
-    local result = workspace:Raycast(Vector3.new(position.X, position.Y + 150, position.Z), Vector3.new(0, -400, 0), params)
-    if result then
-        return result.Position + Vector3.new(0, 4, 0)
-    end
-    return position + Vector3.new(0, 4, 0)
-end
-
-local function bossSidePoint(bossPosition, fromPosition, distance, angle)
-    local flat = Vector3.new(fromPosition.X - bossPosition.X, 0, fromPosition.Z - bossPosition.Z)
-    if flat.Magnitude < 1 then
-        flat = Vector3.new(0, 0, 1)
-    end
-    flat = flat.Unit
-    if angle and angle ~= 0 then
-        flat = CFrame.Angles(0, angle, 0):VectorToWorldSpace(flat)
-    end
-    return bossPosition + flat * distance
-end
-
-local function bossJump(myRoot, model, point, lookAtPosition)
-    local ground = bossGround(point, { Game.getCharacter(), model })
-    local targetPos = ground
-    if lookAtPosition and lookAtPosition.Y > ground.Y + 12 then
-        targetPos = Vector3.new(ground.X, lookAtPosition.Y, ground.Z)
+local function bossTeleport(myRoot, character, targetPos, lookAtPos)
+    if not myRoot or not targetPos then
+        return
     end
     pcall(function()
         myRoot.AssemblyLinearVelocity = Vector3.zero
         myRoot.AssemblyAngularVelocity = Vector3.zero
-        if lookAtPosition then
-            myRoot.CFrame = CFrame.lookAt(targetPos, Vector3.new(lookAtPosition.X, targetPos.Y, lookAtPosition.Z))
+        local cf
+        if lookAtPos then
+            cf = CFrame.lookAt(targetPos, lookAtPos)
         else
-            myRoot.CFrame = CFrame.new(targetPos)
+            cf = CFrame.new(targetPos)
         end
+        if character then
+            character:PivotTo(cf)
+        end
+        myRoot.CFrame = cf
     end)
+end
+
+local function bossIsUsingUlt(model)
+    if not model then
+        return false
+    end
+    local kame = model:GetAttribute("KameState")
+    if type(kame) == "string" and kame ~= "" and kame ~= "Idle" and kame ~= "Cancelled" then
+        return true
+    end
+    local ki = model:GetAttribute("KiBurstState")
+    if type(ki) == "string" and ki ~= "" and ki ~= "Idle" and ki ~= "Cancelled" then
+        return true
+    end
+    if model:GetAttribute("DeathDanceActive") == true then
+        return true
+    end
+    local brolySkill = model:GetAttribute("BrolySkillActive")
+    if brolySkill ~= nil and brolySkill ~= false and brolySkill ~= "" then
+        return true
+    end
+    return false
 end
 
 local function bossGetLobbyFloorPosition()
@@ -5394,46 +5379,46 @@ local function bossGetLobbyFloorPosition()
         end
     end
     if #parts == 0 then
-        for _, d in ipairs(lobby:GetDescendants()) do
-            if d:IsA("BasePart") then
-                table.insert(parts, d)
-            end
-        end
-    end
-    if #parts == 0 then
         return nil
     end
     local chosen = parts[math.random(1, #parts)]
-    return chosen.Position + Vector3.new(0, chosen.Size.Y * 0.5 + 4, 0)
+    return chosen.Position + Vector3.new(0, chosen.Size.Y * 0.5 + 5, 0)
 end
 
-local function bossHoldUnderground(myRoot, underPos, isFlee)
-    AutoState.bossUnderStrafeSign = -(AutoState.bossUnderStrafeSign or 1)
-    local minSpread = isFlee and 95 or 65
-    local maxSpread = isFlee and 150 or 110
-    local sideOffset = math.random(minSpread, maxSpread) * AutoState.bossUnderStrafeSign
-    local zOffset = isFlee and math.random(-55, 55) or math.random(-30, 30)
-    local pos = Vector3.new(underPos.X + sideOffset, underPos.Y, underPos.Z + zOffset)
-    local cf = CFrame.new(pos)
-    pcall(function()
-        local character = Game.getCharacter()
-        myRoot.AssemblyLinearVelocity = Vector3.zero
-        myRoot.AssemblyAngularVelocity = Vector3.zero
-        if character then
-            character:PivotTo(cf)
-        end
-        myRoot.CFrame = cf
-    end)
+local function bossSkyOrbitPos(bossPos, fromPos, dist, height, angleRad)
+    local flat = Vector3.new(fromPos.X - bossPos.X, 0, fromPos.Z - bossPos.Z)
+    if flat.Magnitude < 1 then
+        flat = Vector3.new(0, 0, 1)
+    else
+        flat = flat.Unit
+    end
+    if angleRad and angleRad ~= 0 then
+        flat = CFrame.Angles(0, angleRad, 0):VectorToWorldSpace(flat)
+    end
+    local safeY = math.max(bossPos.Y + (height or 28), (workspace.FallenPartsDestroyHeight or -500) + 150)
+    return Vector3.new(bossPos.X + flat.X * dist, safeY, bossPos.Z + flat.Z * dist)
 end
 
-local function bossUnderground(myRoot, model, anchorPosition, depth)
-    local basePos = anchorPosition or myRoot.Position
-    local ground = bossGround(basePos, { Game.getCharacter(), model })
-    local minSafeY = (workspace.FallenPartsDestroyHeight or -500) + 120
-    local targetY = math.max(minSafeY, ground.Y - (depth or 55))
-    local underPos = Vector3.new(ground.X, targetY, ground.Z)
-    bossHoldUnderground(myRoot, underPos)
-    return underPos
+local function bossUltDodgePos(model, bossRoot, myRoot, dist, height)
+    local bossPos = bossRoot.Position
+    local ultDir = model:GetAttribute("KameDirection")
+    local flatDir
+    if typeof(ultDir) == "Vector3" and ultDir.Magnitude > 0.1 then
+        flatDir = Vector3.new(ultDir.X, 0, ultDir.Z)
+    else
+        local look = bossRoot.CFrame.LookVector
+        flatDir = Vector3.new(look.X, 0, look.Z)
+    end
+    if flatDir.Magnitude < 0.1 then
+        flatDir = Vector3.new(myRoot.Position.X - bossPos.X, 0, myRoot.Position.Z - bossPos.Z)
+    end
+    flatDir = flatDir.Magnitude > 0.1 and flatDir.Unit or Vector3.new(0, 0, 1)
+    AutoState.bossDodgeSign = -(AutoState.bossDodgeSign or 1)
+    -- Boss ultisinin ters / arka yan yonune (130-165 derece) kac
+    local escapeAngle = math.rad(math.random(130, 165)) * AutoState.bossDodgeSign
+    local dir = CFrame.Angles(0, escapeAngle, 0):VectorToWorldSpace(flatDir)
+    local safeY = math.max(bossPos.Y + (height or 30), (workspace.FallenPartsDestroyHeight or -500) + 150)
+    return Vector3.new(bossPos.X + dir.X * dist, safeY, bossPos.Z + dir.Z * dist)
 end
 
 local function bossResetState()
@@ -5444,12 +5429,14 @@ local function bossResetState()
     AutoState.bossPrepFlightTries = 0
     AutoState.bossAuraStart = nil
     AutoState.bossForceAura = nil
-    AutoState.bossCastStart = nil
-    AutoState.bossCastSeen = false
-    AutoState.bossSurfacePos = nil
     AutoState.bossLobbyPos = nil
-    AutoState.bossHideUntil = nil
-    AutoState.bossUndergroundPos = nil
+    AutoState.bossEnergyAt = nil
+    AutoState.bossRetreatAt = nil
+    AutoState.bossRetreatCooldownUntil = nil
+    AutoState.bossNextOrbitAt = nil
+    AutoState.bossLastUltDodgeAt = nil
+    AutoState.bossLastSkillCastAt = nil
+    AutoState.bossLastAimLockAt = nil
     AutoState.bossAimLockedModel = nil
     AutoState.bossStatus = nil
     AutoState.bossFarmEnergy = false
@@ -5463,7 +5450,8 @@ local function bossStep()
         bossResetState()
         return
     end
-    -- Teleport to Boss, Use Skills on Boss ve Recharge Energy When Low acik degilse Auto Boss calismaz
+
+    -- On kosul: Teleport to Boss, Use Skills on Boss ve Recharge Energy When Low acik olmali
     if not bossHasPrereqs() then
         Config.AutoBoss = false
         queueSave()
@@ -5481,136 +5469,71 @@ local function bossStep()
     local humanoid = Game.getHumanoid()
     local myRoot = Game.getRoot()
     if not character or not humanoid or not myRoot or humanoid.Health <= 0 then
-        AutoState.bossMode = nil
-        AutoState.bossPhase = nil
-        AutoState.bossPrepDone = false
-        AutoState.bossForceAura = nil
-        AutoState.bossLobbyPos = nil
+        bossResetState()
         AutoState.bossStatus = "Waiting for respawn"
-        AutoState.bossFarmEnergy = false
         return
     end
 
-    local hpFrac = humanoid.MaxHealth > 0 and humanoid.Health / humanoid.MaxHealth or 1
+    local hpFrac = humanoid.MaxHealth > 0 and (humanoid.Health / humanoid.MaxHealth) or 1
     local energy = Game.readNumber("Energy") or 0
     local maxEnergy = Game.readNumber("MaxEnergy") or 0
-    local energyFrac = maxEnergy > 0 and energy / maxEnergy or 1
+    local energyFrac = maxEnergy > 0 and (energy / maxEnergy) or 1
 
-    -- Hasar takibi
-    local lastHp = AutoState.bossLastHp
-    AutoState.bossLastHp = hpFrac
-    local gotHit = lastHp ~= nil and hpFrac < lastHp - 0.003
-    local window = AutoState.bossDropWindow
-    if not window or now - window.t > 2 then
-        window = { t = now, sum = 0 }
-        AutoState.bossDropWindow = window
-    end
-    if gotHit then
-        window.sum = window.sum + (lastHp - hpFrac)
-    end
-
-    local model, bossHumanoid, bossRoot = getSelectedBoss()
-    local fleeLimit = math.clamp(tonumber(Config.BossFleeHealth) or 40, 5, 90) / 100
-    local recoverAt = math.min(0.95, fleeLimit + 0.4)
-
-    -- 1. ENERJI KONTROLU (Saldirirken ve kacarken enerji 0 oldugunda Lobby/Floor partina TP + %100 yapip devam)
+    -- ============================================================
+    -- 1. EN YUKSEK ONCELIK: ENERJI SARJI (Lobby Floor -> %100)
+    -- ============================================================
+    local isFarmingEnergyNow = character:GetAttribute("FarmingEnergy") == true
     if Config.BossEnergy == true and maxEnergy > 0 then
-        if AutoState.bossMode ~= "energy_recharge" and AutoState.bossPrepDone and energy <= 0.05 then
+        local needRecharge = (AutoState.bossPrepDone and energy <= 0.05)
+            or (isFarmingEnergyNow and energyFrac < 0.995)
+        if AutoState.bossMode ~= "energy_recharge" and needRecharge then
             AutoState.bossMode = "energy_recharge"
             AutoState.bossEnergyAt = now
             AutoState.bossForceAura = nil
-            AutoState.bossUndergroundPos = nil
             AutoState.bossLobbyPos = bossGetLobbyFloorPosition()
             AutoState.bossFarmEnergy = true
             fireFarm("stopAura", "StopFarmAura", 0)
             fireFarm("farmEnergy", "FarmEnergy", 0)
-            notify("Energy reached 0: teleporting to Lobby floor to recharge to 100%.", "warn", 4)
+            notify("Energy recharging on Lobby floor until 100%.", "warn", 4)
         end
     end
 
     if AutoState.bossMode == "energy_recharge" then
-        local energyFull = (maxEnergy <= 0) or (energy >= maxEnergy) or (energyFrac >= 0.999)
-        local timedOut = now - (AutoState.bossEnergyAt or now) > 90
+        local energyFull = (maxEnergy > 0) and ((energy >= maxEnergy) or (energyFrac >= 0.995))
+        local timedOut = now - (AutoState.bossEnergyAt or now) > 120
         if energyFull or timedOut then
             AutoState.bossMode = "fight"
             AutoState.bossFarmEnergy = false
             AutoState.bossLobbyPos = nil
             fireFarm("stopEnergy", "StopFarmEnergy", 0)
-            AutoState.bossPhase = "attack"
-        else
-            AutoState.bossFarmEnergy = true
-            AutoState.bossStatus = string.format("Lobby Recharge (%.0f%%)", energyFrac * 100)
-            if not AutoState.bossLobbyPos then
-                AutoState.bossLobbyPos = bossGetLobbyFloorPosition()
-            end
-            if AutoState.bossLobbyPos then
-                if (myRoot.Position - AutoState.bossLobbyPos).Magnitude > 12 then
-                    pcall(function()
-                        myRoot.AssemblyLinearVelocity = Vector3.zero
-                        myRoot.AssemblyAngularVelocity = Vector3.zero
-                        myRoot.CFrame = CFrame.new(AutoState.bossLobbyPos)
-                    end)
-                end
-            end
-            if character:GetAttribute("FarmingEnergy") ~= true then
-                fireFarm("farmEnergy", "FarmEnergy", 0.8)
-            end
+            AutoState.bossStatus = "Energy Full (100%)"
             return
         end
+        AutoState.bossFarmEnergy = true
+        AutoState.bossStatus = string.format("Lobby Recharge (%.0f%%)", math.clamp(energyFrac * 100, 0, 100))
+        if not AutoState.bossLobbyPos then
+            AutoState.bossLobbyPos = bossGetLobbyFloorPosition()
+        end
+        if AutoState.bossLobbyPos and (myRoot.Position - AutoState.bossLobbyPos).Magnitude > 10 then
+            bossTeleport(myRoot, character, AutoState.bossLobbyPos, nil)
+        end
+        if character:GetAttribute("FarmingEnergy") ~= true then
+            fireFarm("farmEnergy", "FarmEnergy", 0.5)
+        end
+        return
     end
 
-    -- Auto Collect su an bosstan dusen loot'u topluyorsa kisa sure pozisyonu bozma
+    -- Auto Collect bosstan dusen loot'u topluyorsa kisa sure pozisyonu bozma
     if AutoState.collectingLoot == true and now < (AutoState.collectingLootUntil or 0) then
         AutoState.bossStatus = "Collecting Loot"
         return
     end
 
-    -- 2. KACIS / DUSUK CAN (Flee on Low Health aciksa can dusunce direkt yerin dibine girer; sonsuz kacisa kilitlenmez)
-    if AutoState.bossMode ~= "retreat" and now >= (AutoState.bossRetreatCooldownUntil or 0) then
-        local lowHealth = Config.BossFlee == true and hpFrac <= fleeLimit
-        local burst = Config.BossFlee == true and window.sum >= 0.35 and hpFrac < 0.65
-        if lowHealth or burst then
-            AutoState.bossMode = "retreat"
-            AutoState.bossRetreatAt = now
-            AutoState.bossForceAura = nil
-            AutoState.bossUndergroundPos = nil
-            notify("Low health: going underground to recover.", "warn", 4)
-        end
-    end
-
-    if AutoState.bossMode == "retreat" then
-        local healthOk = Config.BossFlee ~= true or hpFrac >= recoverAt
-        AutoState.bossFarmEnergy = false
-        AutoState.bossStatus = "Underground (Low Health)"
-        local retreatElapsed = now - (AutoState.bossRetreatAt or now)
-        local timedOut = retreatElapsed >= 12
-        if (healthOk and retreatElapsed > 2.0) or timedOut then
-            AutoState.bossMode = "fight"
-            AutoState.bossUndergroundPos = nil
-            AutoState.bossDropWindow = nil
-            if timedOut then
-                -- Timeout ile ciktiysa hemen tekrar kacisa kilitlenmesin, saldiriya gecsin
-                AutoState.bossRetreatCooldownUntil = now + 6
-            end
-            AutoState.bossPhase = AutoState.bossPrepDone and "attack" or "prep_flight"
-        else
-            -- Yerin dibine gir ve iyilesene kadar cok hizli saga-sola isinlanarak sabit kal
-            if not AutoState.bossUndergroundPos then
-                local anchor = (bossRoot and bossSidePoint(bossRoot.Position, myRoot.Position, 160, 0)) or myRoot.Position
-                AutoState.bossUndergroundPos = bossUnderground(myRoot, model, anchor, 85)
-            else
-                bossHoldUnderground(myRoot, AutoState.bossUndergroundPos, true)
-            end
-            return
-        end
-    end
-
-    AutoState.bossMode = "fight"
-    AutoState.bossFarmEnergy = false
-
-    -- 3. BASLANGIC / RESPAWN HAZIRLIGI: 2x Space -> 1s Aura -> Guc (Enerji) Kas -> Boss'a Isinlan
+    -- ============================================================
+    -- 2. BASLANGIC / RESPAWN HAZIRLIGI: 2x Space (Ucus) -> 1s Aura
+    -- ============================================================
     if not AutoState.bossPrepDone then
-        if not AutoState.bossPhase or AutoState.bossPhase == "attack" or AutoState.bossPhase == "casting" or AutoState.bossPhase == "underground" then
+        if AutoState.bossPhase ~= "prep_flight" and AutoState.bossPhase ~= "prep_aura" then
             AutoState.bossPhase = "prep_flight"
             AutoState.bossPrepFlightAt = now
             AutoState.bossPrepFlightTries = 0
@@ -5623,11 +5546,11 @@ local function bossStep()
                 AutoState.bossAuraStart = nil
                 return
             end
-            if (AutoState.bossPrepFlightTries or 0) < 3 and (not AutoState.bossPrepFlightAt or now >= AutoState.bossPrepFlightAt) then
+            if (AutoState.bossPrepFlightTries or 0) < 3 and now >= (AutoState.bossPrepFlightAt or 0) then
                 AutoState.bossPrepFlightTries = (AutoState.bossPrepFlightTries or 0) + 1
-                bossPressKey(Enum.KeyCode.Space, 0.05)
-                task.wait(0.08)
-                bossPressKey(Enum.KeyCode.Space, 0.05)
+                bossPressKey(Enum.KeyCode.Space, 0.04)
+                task.wait(0.07)
+                bossPressKey(Enum.KeyCode.Space, 0.04)
                 AutoState.bossPrepFlightAt = now + 0.35
                 return
             end
@@ -5646,17 +5569,16 @@ local function bossStep()
                 fireFarm("farmAura", "FarmAura", 0)
             end
             local elapsed = now - AutoState.bossAuraStart
-            local rem = math.max(0, 1.0 - elapsed)
-            AutoState.bossStatus = string.format("Prep: Aura (%.1fs)", rem)
+            AutoState.bossStatus = string.format("Prep: Aura (%.1fs)", math.max(0, 1.0 - elapsed))
             if elapsed >= 1.0 then
                 AutoState.bossForceAura = false
                 AutoState.lastFarmFire["stopAura"] = 0
                 fireFarm("stopAura", "StopFarmAura", 0)
-                task.wait(0.08)
+                task.wait(0.06)
                 AutoState.bossForceAura = nil
                 AutoState.bossPrepDone = true
-                -- 1s aura sonrasi enerji 0'a dustuyse Lobby Floor'a isinlanip enerji kas, degilse direkt saldir
-                if Config.BossEnergy == true and maxEnergy > 0 and energy <= 0 then
+                AutoState.bossPhase = "fight"
+                if Config.BossEnergy == true and maxEnergy > 0 and energy <= 0.05 then
                     AutoState.bossMode = "energy_recharge"
                     AutoState.bossEnergyAt = now
                     AutoState.bossLobbyPos = bossGetLobbyFloorPosition()
@@ -5665,167 +5587,121 @@ local function bossStep()
                     notify("Energy reached 0: teleporting to Lobby floor to recharge.", "warn", 4)
                     return
                 end
-                AutoState.bossPhase = "attack"
             end
             return
         end
     end
 
+    local model, bossHumanoid, bossRoot = getSelectedBoss()
     if not model or not bossHumanoid or not bossRoot then
         AutoState.bossStatus = "Waiting for boss"
         return
     end
 
-    local want = math.clamp(tonumber(Config.BossDistance) or 90, 30, 160)
+    -- Ucus kapandiysa hizlica tekrar ac
+    if character:GetAttribute("Flying") ~= true then
+        bossPressKey(Enum.KeyCode.Space, 0.03)
+        task.wait(0.06)
+        bossPressKey(Enum.KeyCode.Space, 0.03)
+        return
+    end
 
-    -- 4. YERIN DIBINDE COOLDOWN BEKLEME (R basildigi gibi iner, sure dolunca veya max 16s sonra mutlaka cikip saldirir)
-    if AutoState.bossPhase == "underground" then
-        if not AutoState.bossUndergroundAt then
-            AutoState.bossUndergroundAt = now
-        end
-        local inUnderFor = now - AutoState.bossUndergroundAt
-        local cdLeft = bossGetSkillCooldownLeft(character)
-        -- SkillCasting 6 saniyeden fazla takili kalirsa yoksay (en uzun skill SpiritBomb 5.6s)
-        local casting = (character:GetAttribute("SkillCasting") == true) and (inUnderFor < 6.0)
-        local minWaitLeft = math.max(0, (AutoState.bossHideUntil or 0) - now)
-        local waitLeft = math.max(cdLeft, minWaitLeft)
-        local forceExit = inUnderFor >= 16.0
+    -- ============================================================
+    -- 3. DUSUK CAN KACISI (Flee on Low Health - Acik Gokyuzu 230 stud)
+    -- ============================================================
+    local fleeLimit = math.clamp(tonumber(Config.BossFleeHealth) or 40, 5, 90) / 100
+    local recoverAt = math.min(0.85, fleeLimit + 0.15)
+    if AutoState.bossMode ~= "retreat" and Config.BossFlee == true and hpFrac <= fleeLimit and now >= (AutoState.bossRetreatCooldownUntil or 0) then
+        AutoState.bossMode = "retreat"
+        AutoState.bossRetreatAt = now
+        notify("Low health: pulling back to safe sky.", "warn", 3)
+    end
 
-        if (not casting and waitLeft <= 0.05) or forceExit then
-            AutoState.bossUndergroundPos = nil
-            AutoState.bossUndergroundAt = nil
-            -- Sure dolduktan sonra enerji 0'a dustuyse Lobby Floor'a isinlanip enerji kas
-            if Config.BossEnergy == true and maxEnergy > 0 and energy <= 0.05 then
-                AutoState.bossMode = "energy_recharge"
-                AutoState.bossEnergyAt = now
-                AutoState.bossLobbyPos = bossGetLobbyFloorPosition()
-                AutoState.bossFarmEnergy = true
-                fireFarm("stopAura", "StopFarmAura", 0)
-                fireFarm("farmEnergy", "FarmEnergy", 0)
-                notify("Energy reached 0: teleporting to Lobby floor to recharge to 100%.", "warn", 4)
-                return
-            end
-            AutoState.bossPhase = "attack"
+    if AutoState.bossMode == "retreat" then
+        local elapsed = now - (AutoState.bossRetreatAt or now)
+        if hpFrac >= recoverAt or elapsed >= 4.0 then
+            AutoState.bossMode = "fight"
+            AutoState.bossRetreatCooldownUntil = now + 5.0
         else
-            AutoState.bossStatus = string.format("Underground (%.1fs)", waitLeft)
-            if not AutoState.bossUndergroundPos then
-                AutoState.bossUndergroundPos = bossUnderground(myRoot, model, bossRoot.Position, 55)
+            AutoState.bossStatus = string.format("Low HP Retreat (%.0f%%)", hpFrac * 100)
+            local safePos = bossSkyOrbitPos(bossRoot.Position, myRoot.Position, 230, 65, 0)
+            if (myRoot.Position - safePos).Magnitude > 15 then
+                bossTeleport(myRoot, character, safePos, bossRoot.Position)
             else
-                bossHoldUnderground(myRoot, AutoState.bossUndergroundPos)
+                bossFocusTarget(myRoot, bossRoot)
             end
             return
         end
     end
 
-    -- 5. SALDIRI ASAMASI: Boss'a hizlica saga-sola isinlan -> Odaklan -> F (AimLock) -> R / Skill -> Bastigi gibi yerin dibine gir
-    AutoState.bossPhase = "attack"
-    AutoState.bossStatus = "Attacking (Strafe TP -> F -> R)"
+    AutoState.bossMode = "fight"
+    AutoState.bossFarmEnergy = false
 
-    -- Eger ucus kapandiysa hizlica 2x Space ile ac
-    if character:GetAttribute("Flying") ~= true then
-        bossPressKey(Enum.KeyCode.Space, 0.05)
-        task.wait(0.08)
-        bossPressKey(Enum.KeyCode.Space, 0.05)
-        task.wait(0.08)
-    end
+    -- ============================================================
+    -- 4. ANA SAVAS: HIZLI YUKSEK IRTIFA KITE + F AIMLOCK + ULTI KACISI + DIREKT SKILL
+    -- ============================================================
+    local want = math.clamp(tonumber(Config.BossDistance) or 125, 90, 155)
+    local kiteDist = math.clamp(want, 110, 150)
+    local kiteHeight = math.clamp(tonumber(Config.BossHeight) or 28, 0, 150)
+    local bossPos = bossRoot.Position
+    local myPos = myRoot.Position
+    local flatDist = (Vector3.new(myPos.X - bossPos.X, 0, myPos.Z - bossPos.Z)).Magnitude
+    local ultActive = bossIsUsingUlt(model)
+    local isCasting = character:GetAttribute("SkillCasting") == true
+    local targetY = bossPos.Y + kiteHeight
+    local heightOff = math.abs(myPos.Y - targetY) > 12
 
-    -- Skill menzilinden cikmamak icin guvenli saldiri mesafesi
-    local attackDist = math.min(want, 150)
-
-    -- Hizli saga-sola isinlanma yardimcisi (BossDistance mesafesinde)
-    local function strafeTP()
-        AutoState.bossDodgeSign = -(AutoState.bossDodgeSign or 1)
-        local angle = math.rad(math.random(50, 85)) * AutoState.bossDodgeSign
+    -- A) Boss ultisi atiyorsa: aninda (0.14s) ulti yonunun tersine/arka yanina hizlica kac
+    if ultActive and now >= (AutoState.bossLastUltDodgeAt or 0) then
+        local dodgePos = bossUltDodgePos(model, bossRoot, myRoot, kiteDist, kiteHeight)
         if Config.BossTP then
-            bossJump(myRoot, model, bossSidePoint(bossRoot.Position, myRoot.Position, attackDist, angle), bossRoot.Position)
+            bossTeleport(myRoot, character, dodgePos, bossPos)
         end
+        bossFocusTarget(myRoot, bossRoot)
+        AutoState.bossLastUltDodgeAt = now + 0.14
+        AutoState.bossNextOrbitAt = now + 0.14
+        AutoState.bossStatus = "Dodging Boss Ult & Countering"
+    -- B) Boss yaklastiysa (<90 stud), uzaklastiysa (>170), yukseklik degistiyse veya hizli yorunge zamani (0.12s) geldiyse aninda yer degistir
+    elseif Config.BossTP and (flatDist < 90 or flatDist > 170 or heightOff or now >= (AutoState.bossNextOrbitAt or 0)) then
+        AutoState.bossDodgeSign = -(AutoState.bossDodgeSign or 1)
+        local orbitAngle = (flatDist < 90) and math.rad(math.random(125, 170)) or math.rad(math.random(50, 95))
+        local nextPos = bossSkyOrbitPos(bossPos, myPos, kiteDist, kiteHeight, orbitAngle * AutoState.bossDodgeSign)
+        bossTeleport(myRoot, character, nextPos, bossPos)
+        bossFocusTarget(myRoot, bossRoot)
+        AutoState.bossNextOrbitAt = now + (isCasting and 0.18 or 0.12)
+    else
         bossFocusTarget(myRoot, bossRoot)
     end
 
-    -- 1. Hizli strafe TP (bir tarafa)
-    strafeTP()
-    AutoState.bossSurfacePos = myRoot.Position
-    task.wait(0.05)
-
-    -- Ilk F bas (AimLock): secili boss'a kilitle (beklerken hizlica zıt tarafa isinlan)
-    local locked = bossIsAimLocked()
-    if locked and AutoState.bossAimLockedModel ~= model then
-        bossPressKey(Enum.KeyCode.F, 0.05)
-        task.wait(0.06)
-        locked = false
-    end
-    if not locked then
+    -- Ilk TP sonrasi (veya kilit dustuyse) F basip boss'a kitlen
+    local lockedNow = bossIsAimLocked()
+    if lockedNow and AutoState.bossAimLockedModel ~= model and now >= (AutoState.bossLastAimLockAt or 0) then
+        AutoState.bossLastAimLockAt = now + 0.8
+        bossPressKey(Enum.KeyCode.F, 0.04)
+        AutoState.bossAimLockedModel = nil
+    elseif (not lockedNow or AutoState.bossAimLockedModel ~= model) and now >= (AutoState.bossLastAimLockAt or 0) then
+        AutoState.bossLastAimLockAt = now + 1.2
         bossFocusTarget(myRoot, bossRoot)
-        bossPressKey(Enum.KeyCode.F, 0.05)
-        local lockDeadline = os.clock() + 0.25
-        local nextStrafe = os.clock() + 0.12
-        while os.clock() < lockDeadline and not bossIsAimLocked() do
-            if os.clock() >= nextStrafe then
-                strafeTP()
-                nextStrafe = os.clock() + 0.12
-            else
-                bossFocusTarget(myRoot, bossRoot)
-            end
-            task.wait(0.04)
-        end
-        if not bossIsAimLocked() then
-            local aimRemote = Remote.getRemote("AimLock")
-            local cam = workspace.CurrentCamera
-            if aimRemote and cam then
-                bossFocusTarget(myRoot, bossRoot)
-                pcall(function()
-                    aimRemote:FireServer("Select", HttpService:GenerateGUID(false), cam.CFrame.Position, cam.CFrame.LookVector)
-                end)
-                task.wait(0.06)
-            end
-        end
+        bossPressKey(Enum.KeyCode.F, 0.04)
         AutoState.bossAimLockedModel = model
     end
 
-    -- 2. Atis oncesi hizlica zıt tarafa strafe TP + boss'un tam pozisyonuna skill at (gercekten atilana kadar max 4 deneme)
+    -- C) Skill atisi (dogrudan bossRoot.Position hedefine - %100 isabet)
     if Config.BossSkills then
-        for attempt = 1, 4 do
-            if not bossRoot or not bossRoot.Parent or not bossHumanoid or bossHumanoid.Health <= 0 then
-                break
-            end
-            strafeTP()
-            local fired = castBestSkillAt(bossRoot.Position, math.huge, "Auto")
-            if not fired then
-                bossPressKey(Enum.KeyCode.R, 0.05)
-            end
-            task.wait(0.08)
-            local didCast = fired
-                or character:GetAttribute("SkillCasting") == true
-                or bossGetSkillCooldownLeft(character) > 0.1
-            if didCast then
-                break
-            end
-            -- Enerji 0 olduysa daha fazla zorlama, dongu Lobby'ye gitsin
-            if (Game.readNumber("Energy") or 0) <= 0 then
-                break
+        if isCasting then
+            AutoState.bossStatus = "Casting Skill (Clear Sky)"
+        elseif now >= (AutoState.bossLastSkillCastAt or 0) then
+            local fired = castBestSkillAt(bossPos, math.huge, "Auto")
+            if fired then
+                AutoState.bossLastSkillCastAt = now + 0.12
+                AutoState.bossStatus = ultActive and "Countering Boss Ult" or "Attacking Boss (Sky Kite)"
+            else
+                AutoState.bossStatus = ultActive and "Dodging Boss Ult" or "Kiting Boss (Cooldown)"
             end
         end
+    else
+        AutoState.bossStatus = "Kiting Boss"
     end
-
-    -- Saldiri sonrasinda enerji 0'a dustuyse yerin dibine girmeden direkt Lobby Floor'a gidip %100 yap
-    if Config.BossEnergy == true and maxEnergy > 0 and (Game.readNumber("Energy") or 0) <= 0.05 then
-        AutoState.bossMode = "energy_recharge"
-        AutoState.bossEnergyAt = os.clock()
-        AutoState.bossUndergroundPos = nil
-        AutoState.bossLobbyPos = bossGetLobbyFloorPosition()
-        AutoState.bossFarmEnergy = true
-        fireFarm("stopAura", "StopFarmAura", 0)
-        fireFarm("farmEnergy", "FarmEnergy", 0)
-        notify("Energy reached 0: teleporting to Lobby floor to recharge to 100%.", "warn", 4)
-        return
-    end
-
-    -- R / Skill bastigi gibi hemen yerin dibine gir ve cooldown suresi dolana kadar orada bekle
-    AutoState.bossUndergroundPos = bossUnderground(myRoot, model, bossRoot.Position, 55)
-    AutoState.bossUndergroundAt = os.clock()
-    AutoState.bossHideUntil = os.clock() + 0.35
-    AutoState.bossPhase = "underground"
-    AutoState.bossStatus = "Underground"
 end
 
 
