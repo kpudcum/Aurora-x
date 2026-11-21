@@ -5431,6 +5431,7 @@ local function bossResetState()
     AutoState.bossForceAura = nil
     AutoState.bossLobbyPos = nil
     AutoState.bossEnergyAt = nil
+    AutoState.bossEnergyRetryAt = nil
     AutoState.bossRetreatAt = nil
     AutoState.bossRetreatCooldownUntil = nil
     AutoState.bossNextOrbitAt = nil
@@ -5440,6 +5441,24 @@ local function bossResetState()
     AutoState.bossAimLockedModel = nil
     AutoState.bossStatus = nil
     AutoState.bossFarmEnergy = false
+end
+
+-- Enerji, yetenek maliyetinin altina dusunce yetenek atilamaz: "0" olmasini beklemeden sarj et
+local function bossLowEnergyThreshold(maxEnergy)
+    local equipped = LocalPlayer:GetAttribute("EquippedPlayerSkill")
+    local lowest
+    for _, name in ipairs(SKILL_ORDER) do
+        if type(equipped) ~= "string" or SKILL_META[equipped] == nil or equipped == name then
+            local remote = Remote.getSkillRemote(name)
+            local meta = SKILL_META[name]
+            local cost = tonumber(remote and remote:GetAttribute("EnergyCost")) or (meta and meta.cost) or 1
+            if not lowest or cost < lowest then
+                lowest = cost
+            end
+        end
+    end
+    lowest = (lowest or 1) + (tonumber(Config.SkillEnergyReserve) or 0)
+    return math.max(0.05, lowest, (tonumber(maxEnergy) or 0) * 0.01)
 end
 
 local function bossStep()
@@ -5484,17 +5503,19 @@ local function bossStep()
     -- ============================================================
     local isFarmingEnergyNow = character:GetAttribute("FarmingEnergy") == true
     if Config.BossEnergy == true and maxEnergy > 0 then
-        local needRecharge = (AutoState.bossPrepDone and energy <= 0.05)
+        local needRecharge = energy < bossLowEnergyThreshold(maxEnergy)
             or (isFarmingEnergyNow and energyFrac < 0.995)
         if AutoState.bossMode ~= "energy_recharge" and needRecharge then
             AutoState.bossMode = "energy_recharge"
             AutoState.bossEnergyAt = now
+            AutoState.bossEnergyRetryAt = now
             AutoState.bossForceAura = nil
+            AutoState.bossPhase = nil
             AutoState.bossLobbyPos = bossGetLobbyFloorPosition()
             AutoState.bossFarmEnergy = true
             fireFarm("stopAura", "StopFarmAura", 0)
             fireFarm("farmEnergy", "FarmEnergy", 0)
-            notify("Energy recharging on Lobby floor until 100%.", "warn", 4)
+            notify("Energy low: recharging on the Lobby floor until 100%.", "warn", 4)
         end
     end
 
@@ -5518,7 +5539,18 @@ local function bossStep()
             bossTeleport(myRoot, character, AutoState.bossLobbyPos, nil)
         end
         if character:GetAttribute("FarmingEnergy") ~= true then
+            -- Enerji farmi baslamadiysa (yanlis nokta / gecikme) 2.5 sn'de bir yeni zemin noktasina isinlan ve tekrar dene
+            if now - (AutoState.bossEnergyRetryAt or 0) > 2.5 then
+                AutoState.bossEnergyRetryAt = now
+                local fresh = bossGetLobbyFloorPosition()
+                if fresh then
+                    AutoState.bossLobbyPos = fresh
+                    bossTeleport(myRoot, character, fresh, nil)
+                end
+            end
             fireFarm("farmEnergy", "FarmEnergy", 0.5)
+        else
+            AutoState.bossEnergyRetryAt = now
         end
         return
     end
@@ -5578,7 +5610,7 @@ local function bossStep()
                 AutoState.bossForceAura = nil
                 AutoState.bossPrepDone = true
                 AutoState.bossPhase = "fight"
-                if Config.BossEnergy == true and maxEnergy > 0 and energy <= 0.05 then
+                if Config.BossEnergy == true and maxEnergy > 0 and energy < bossLowEnergyThreshold(maxEnergy) then
                     AutoState.bossMode = "energy_recharge"
                     AutoState.bossEnergyAt = now
                     AutoState.bossLobbyPos = bossGetLobbyFloorPosition()
