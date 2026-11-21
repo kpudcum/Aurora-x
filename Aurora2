@@ -229,25 +229,37 @@ local function accentGrad(parent, rot)
 	return g
 end
 
-local function makeDrag(track, fn)
+local function makeDrag(track, fn, hit)
 	local dragging = false
 	local sf = nil
-	track.InputBegan:Connect(function(i)
+	local active = nil
+	local function relOf(i)
+		return math.clamp((i.Position.X - track.AbsolutePosition.X) / math.max(1, track.AbsoluteSize.X), 0, 1)
+	end
+	;(hit or track).InputBegan:Connect(function(i)
+		if dragging then return end
 		if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
 			dragging = true
+			active = i
 			sf = track:FindFirstAncestorOfClass("ScrollingFrame")
 			if sf then sf.ScrollingEnabled = false end
-			fn(math.clamp((i.Position.X - track.AbsolutePosition.X) / math.max(1, track.AbsoluteSize.X), 0, 1))
+			fn(relOf(i))
 		end
 	end)
 	UIS.InputChanged:Connect(function(i)
-		if dragging and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
-			fn(math.clamp((i.Position.X - track.AbsolutePosition.X) / math.max(1, track.AbsoluteSize.X), 0, 1))
+		if not dragging or not active then return end
+		-- dokunmatikte sadece slider'i baslatan parmak (karakteri yuruten ikinci parmak slider'i kaydirmasin)
+		if active.UserInputType == Enum.UserInputType.Touch then
+			if i == active then fn(relOf(i)) end
+		elseif i.UserInputType == Enum.UserInputType.MouseMovement then
+			fn(relOf(i))
 		end
 	end)
 	UIS.InputEnded:Connect(function(i)
-		if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+		if not dragging then return end
+		if i == active or (active and active.UserInputType == Enum.UserInputType.MouseButton1 and i.UserInputType == Enum.UserInputType.MouseButton1) then
 			dragging = false
+			active = nil
 			if sf then sf.ScrollingEnabled = true sf = nil end
 		end
 	end)
@@ -568,14 +580,15 @@ function Aurora:CreateWindow(titleText, subtitle)
 	------------------------------------------------ SURUKLEME
 	do
 		local dragging, startPos, startIn
+		local dragInput
 		top.InputBegan:Connect(function(i)
 			if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
-				dragging, startIn, startPos = true, i.Position, holder.Position
+				dragging, startIn, startPos, dragInput = true, i.Position, holder.Position, i
 				i.Changed:Connect(function() if i.UserInputState == Enum.UserInputState.End then dragging = false end end)
 			end
 		end)
 		UIS.InputChanged:Connect(function(i)
-			if dragging and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
+			if dragging and dragInput and ((dragInput.UserInputType == Enum.UserInputType.Touch and i == dragInput) or (dragInput.UserInputType ~= Enum.UserInputType.Touch and i.UserInputType == Enum.UserInputType.MouseMovement)) then
 				local d = i.Position - startIn
 				holder.Position = UDim2.new(startPos.X.Scale, math.floor(startPos.X.Offset + d.X), startPos.Y.Scale, math.floor(startPos.Y.Offset + d.Y))
 			end
@@ -603,14 +616,15 @@ function Aurora:CreateWindow(titleText, subtitle)
 	local lMoved = false
 	do
 		local ldrag, lstartIn, lstartPos = false, nil, nil
+		local linput
 		launcher.InputBegan:Connect(function(i)
 			if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
-				ldrag, lMoved, lstartIn, lstartPos = true, false, i.Position, launcher.Position
+				ldrag, lMoved, lstartIn, lstartPos, linput = true, false, i.Position, launcher.Position, i
 				i.Changed:Connect(function() if i.UserInputState == Enum.UserInputState.End then ldrag = false end end)
 			end
 		end)
 		table.insert(conns, UIS.InputChanged:Connect(function(i)
-			if ldrag and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
+			if ldrag and linput and ((linput.UserInputType == Enum.UserInputType.Touch and i == linput) or (linput.UserInputType ~= Enum.UserInputType.Touch and i.UserInputType == Enum.UserInputType.MouseMovement)) then
 				local d = i.Position - lstartIn
 				if not lMoved and d.Magnitude > 8 then lMoved = true end
 				if lMoved then
@@ -1096,7 +1110,7 @@ function Aurora:CreateWindow(titleText, subtitle)
 				local token = 0
 				b.MouseButton1Click:Connect(function()
 					local mp = UIS:GetMouseLocation()
-					local rip = new("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromOffset(mp.X - r.AbsolutePosition.X, mp.Y - r.AbsolutePosition.Y), Size = UDim2.fromOffset(0, 0), BackgroundColor3 = accent, BackgroundTransparency = 0.6, BorderSizePixel = 0 }, { corner(200) })
+					local rip = new("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromOffset((mp.X - r.AbsolutePosition.X) / math.max(uiscale.Scale, 0.05), (mp.Y - r.AbsolutePosition.Y) / math.max(uiscale.Scale, 0.05)), Size = UDim2.fromOffset(0, 0), BackgroundColor3 = accent, BackgroundTransparency = 0.6, BorderSizePixel = 0 }, { corner(200) })
 					rip.Parent = r
 					tween(rip, 0.55, { Size = UDim2.fromOffset(300, 300), BackgroundTransparency = 1 }).Completed:Connect(function() rip:Destroy() end)
 					local ok = pcall(function()
@@ -1148,7 +1162,7 @@ function Aurora:CreateWindow(titleText, subtitle)
 				label({ Text = ">", Font = Enum.Font.GothamBold, TextSize = 18, TextColor3 = T.dim, TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.fromOffset(30, 40), Position = UDim2.new(1, -34, 0, 0) }).Parent = r
 				b.MouseButton1Click:Connect(function()
 					local mp = UIS:GetMouseLocation()
-					local rip = new("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromOffset(mp.X - r.AbsolutePosition.X, mp.Y - r.AbsolutePosition.Y), Size = UDim2.fromOffset(0, 0), BackgroundColor3 = accent, BackgroundTransparency = 0.6, BorderSizePixel = 0 }, { corner(200) })
+					local rip = new("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromOffset((mp.X - r.AbsolutePosition.X) / math.max(uiscale.Scale, 0.05), (mp.Y - r.AbsolutePosition.Y) / math.max(uiscale.Scale, 0.05)), Size = UDim2.fromOffset(0, 0), BackgroundColor3 = accent, BackgroundTransparency = 0.6, BorderSizePixel = 0 }, { corner(200) })
 					rip.Parent = r
 					tween(rip, 0.55, { Size = UDim2.fromOffset(300, 300), BackgroundTransparency = 1 }).Completed:Connect(function() rip:Destroy() end)
 					if cb then task.spawn(cb) end
@@ -1167,6 +1181,8 @@ function Aurora:CreateWindow(titleText, subtitle)
 				pg.Parent = pill
 				local knob = new("Frame", { Size = UDim2.fromOffset(16, 16), Position = UDim2.fromOffset(3, 3), BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0 }, { corner(8) })
 				knob.Parent = pill
+				local hit = new("TextButton", { Text = "", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, AutoButtonColor = false, BorderSizePixel = 0 })
+				hit.Parent = r
 				pill.Parent = r
 				local function paint(anim)
 					local d = anim and 0.2 or 0
@@ -1176,12 +1192,14 @@ function Aurora:CreateWindow(titleText, subtitle)
 				onAccent(function() paint(false) end)
 				onThemeChange(function(k) if k == "row2" then paint(false) end end)
 				local locked = false
-				pill.MouseButton1Click:Connect(function()
+				local function flip()
 					if locked then return end -- kilitliyken tiklama hicbir sey yapmaz (animasyon da yok)
 					state = not state
 					paint(true)
 					if cb then task.spawn(cb, state) end
-				end)
+				end
+				pill.MouseButton1Click:Connect(flip)
+				hit.MouseButton1Click:Connect(flip)
 				local obj = {
 					Set = function(v) state = v and true or false paint(true) if cb then task.spawn(cb, state) end end,
 					Get = function() return state end,
@@ -1219,6 +1237,8 @@ function Aurora:CreateWindow(titleText, subtitle)
 				ks.Parent = knob
 				knob.Parent = fill
 				track.Parent = r
+				local sliderHit = new("Frame", { Size = UDim2.new(1, -28, 0, 28), Position = UDim2.fromOffset(14, 30), BackgroundTransparency = 1, BorderSizePixel = 0 })
+				sliderHit.Parent = r
 				local function setRel(rel, fire)
 					value = math.floor((min + (max - min) * rel) / step + 0.5) * step
 					value = math.clamp(value, min, max)
@@ -1227,7 +1247,7 @@ function Aurora:CreateWindow(titleText, subtitle)
 					tween(fill, 0.08, { Size = UDim2.new((value - min) / (max - min), 0, 1, 0) })
 					if fire and cb then cb(value) end
 				end
-				makeDrag(track, function(rel) setRel(rel, true) end)
+				makeDrag(track, function(rel) setRel(rel, true) end, sliderHit)
 				local obj = {
 					Set = function(v) setRel((v - min) / (max - min), true) end,
 					Get = function() return value end,
@@ -4272,10 +4292,11 @@ do
     applyHudScale()
     hudFrame.Parent = gui
 
-    local hudDragging, hudStart, hudStartPos = false, nil, nil
+    local hudDragging, hudStart, hudStartPos, hudInput = false, nil, nil, nil
     hudTop.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             hudDragging = true
+            hudInput = input
             hudStart = input.Position
             hudStartPos = hudFrame.Position
         end
@@ -4284,7 +4305,8 @@ do
         if not hudDragging then
             return
         end
-        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+        if (hudInput and hudInput.UserInputType == Enum.UserInputType.Touch and input == hudInput)
+            or ((not hudInput or hudInput.UserInputType ~= Enum.UserInputType.Touch) and input.UserInputType == Enum.UserInputType.MouseMovement) then
             local d = input.Position - hudStart
             local cam = workspace.CurrentCamera
             local vp = cam and cam.ViewportSize or Vector2.new(1280, 720)
@@ -4294,7 +4316,7 @@ do
         end
     end))
     track(UserInputService.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        if input == hudInput or input.UserInputType == Enum.UserInputType.MouseButton1 then
             hudDragging = false
         end
     end))
