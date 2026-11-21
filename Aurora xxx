@@ -80,10 +80,14 @@ local theme = {
 
 local defaults = {
 	toggleKey = Enum.KeyCode.RightShift,
-	uiScale = 1,
+	uiScale = UserInputService.TouchEnabled and 0.65 or 1,
+	autoMobileScale = true,
 	uiTransparency = 0.06,
 	accent = Color3.fromRGB(88, 158, 255),
 	mobileQuickBar = UserInputService.TouchEnabled,
+	mobileBarScale = 0.85,
+	showMobileToggle = true,
+	mobileButtonScale = 1,
 
 	autoStruggle = true,
 	autoStruggleInterval = 0.02,
@@ -4916,7 +4920,9 @@ end)()
 		if uiRefs.settings and uiRefs.settings.toggleKeyLabel then
 			uiRefs.settings.toggleKeyLabel.Text = tostring(config.toggleKey and config.toggleKey.Name or "RightShift")
 		end
-		if uiScaleObj then
+		if uiRefs.applyAllScales then
+			uiRefs.applyAllScales()
+		elseif uiScaleObj then
 			uiScaleObj.Scale = tonumber(config.uiScale) or 1
 		end
 		updateDashboard()
@@ -5007,6 +5013,10 @@ end)()
 	corner(mobileToggleBtn, 10)
 	stroke(mobileToggleBtn, Color3.fromRGB(255, 255, 255), 1.5)
 	table.insert(uiRefs.accentButtons, mobileToggleBtn)
+	local mobileToggleScale = create("UIScale", {
+		Scale = tonumber(config.mobileButtonScale) or 1,
+	}, mobileToggleBtn)
+	mobileToggleBtn.Visible = config.showMobileToggle ~= false
 
 	local pillDragging = false
 	local pillMoved = false
@@ -5064,6 +5074,9 @@ end)()
 	}, mainGui)
 	corner(mobileBar, 8)
 	stroke(mobileBar, theme.border, 1)
+	local mobileBarScaleObj = create("UIScale", {
+		Scale = tonumber(config.mobileBarScale) or 0.85,
+	}, mobileBar)
 	create("UIPadding", {
 		PaddingLeft = UDim.new(0, 6),
 		PaddingRight = UDim.new(0, 6),
@@ -5127,21 +5140,36 @@ end)()
 	end)
 
 	uiRefs.mobileBar = mobileBar
+	uiRefs.mobileToggleBtn = mobileToggleBtn
 
 	local function fitWindowToViewport()
 		local cam = workspace.CurrentCamera
-		if not cam then
-			return
-		end
-		local vp = cam.ViewportSize
-		local userScale = tonumber(config.uiScale) or 1
-		if vp.X < 760 or vp.Y < 510 then
-			local fit = math.clamp(math.min((vp.X - 24) / 720, (vp.Y - 24) / 480), 0.45, 1)
-			uiScaleObj.Scale = math.min(userScale, fit)
+		local userScale = math.clamp(tonumber(config.uiScale) or 1, 0.35, 1.4)
+		if cam and config.autoMobileScale ~= false then
+			local vp = cam.ViewportSize
+			if vp.X < 820 or vp.Y < 540 then
+				local fit = math.clamp(math.min((vp.X - 28) / 720, (vp.Y - 36) / 480), 0.38, 1)
+				uiScaleObj.Scale = math.min(userScale, fit)
+			else
+				uiScaleObj.Scale = userScale
+			end
 		else
 			uiScaleObj.Scale = userScale
 		end
+		if mobileBarScaleObj then
+			mobileBarScaleObj.Scale = math.clamp(tonumber(config.mobileBarScale) or 0.85, 0.5, 1.3)
+		end
+		if mobileToggleScale then
+			mobileToggleScale.Scale = math.clamp(tonumber(config.mobileButtonScale) or 1, 0.6, 1.5)
+		end
+		if mobileBar then
+			mobileBar.Visible = config.mobileQuickBar == true
+		end
+		if mobileToggleBtn then
+			mobileToggleBtn.Visible = config.showMobileToggle ~= false
+		end
 	end
+	uiRefs.applyAllScales = fitWindowToViewport
 	if workspace.CurrentCamera then
 		connect(workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"), fitWindowToViewport)
 	end
@@ -6488,14 +6516,46 @@ end)()
 	-- ============================================================
 
 	local settingsPage = pages["Ayarlar"]
-	local uiSection = section(settingsPage, "Arayüz", "Panel görünümü ve kısayol.")
-	sliderRow(uiSection, "Ölçek", 0.7, 1.4, 0.05, function()
+	local uiSection = section(settingsPage, "Arayüz & Ölçek", "Menü boyutu, saydamlık ve kısayol ayarları.")
+	sliderRow(uiSection, "Menü Ölçeği (Menu Scale)", 0.35, 1.4, 0.05, function()
 		return tonumber(config.uiScale) or 1
 	end, function(value)
 		config.uiScale = value
-		uiScaleObj.Scale = value
+		fitWindowToViewport()
 	end, function(value)
 		return string.format("%.2fx", value)
+	end)
+	buttonRow(uiSection, "Hızlı Ölçek", "Telefon, tablet ve PC için hazır boyutlar.", {
+		{ text = "Mobil S", width = 62, callback = function()
+			config.uiScale = 0.55
+			fitWindowToViewport()
+			syncUI()
+			saveConfig()
+		end },
+		{ text = "Mobil M", accent = true, width = 62, callback = function()
+			config.uiScale = 0.70
+			fitWindowToViewport()
+			syncUI()
+			saveConfig()
+		end },
+		{ text = "Tablet", width = 56, callback = function()
+			config.uiScale = 0.85
+			fitWindowToViewport()
+			syncUI()
+			saveConfig()
+		end },
+		{ text = "PC 1x", width = 52, callback = function()
+			config.uiScale = 1.00
+			fitWindowToViewport()
+			syncUI()
+			saveConfig()
+		end },
+	})
+	toggleRow(uiSection, "Otomatik Mobil Sığdır", "Küçük ekranlarda menünün taşmasını otomatik engeller.", function()
+		return config.autoMobileScale ~= false
+	end, function(value)
+		config.autoMobileScale = value
+		fitWindowToViewport()
 	end)
 	sliderRow(uiSection, "Saydamlık", 0, 0.5, 0.02, function()
 		return tonumber(config.uiTransparency) or 0.06
@@ -6511,7 +6571,7 @@ end)()
 		theme.accent = color
 		recolorUI()
 	end)
-	buttonRow(uiSection, "Kısayol", "Paneli açıp kapatır.", {
+	buttonRow(uiSection, "Kısayol", "Paneli açıp kapatır (PC).", {
 		{ text = "Tuş Değiştir", accent = true, width = 96, callback = function()
 			capturingKey = true
 			if uiRefs.settings.toggleKeyLabel then
@@ -6520,6 +6580,46 @@ end)()
 		end },
 	})
 	uiRefs.settings.toggleKeyLabel = infoRow(uiSection, "Panel Tuşu", tostring(config.toggleKey and config.toggleKey.Name or "RightShift"))
+
+	local mobileSection = section(settingsPage, "Mobil Ayarları", "Dokunmatik cihazlar için yüzen SC4 butonu ve hızlı tuş çubuğu.")
+	toggleRow(mobileSection, "Yüzen SC4 Butonu", "Menüyü tek dokunuşla açıp kapatan sürüklenebilir buton.", function()
+		return config.showMobileToggle ~= false
+	end, function(value)
+		config.showMobileToggle = value
+		fitWindowToViewport()
+	end)
+	sliderRow(mobileSection, "SC4 Buton Boyutu", 0.6, 1.5, 0.05, function()
+		return tonumber(config.mobileButtonScale) or 1
+	end, function(value)
+		config.mobileButtonScale = value
+		fitWindowToViewport()
+	end, function(value)
+		return string.format("%.2fx", value)
+	end)
+	toggleRow(mobileSection, "Mobil Hızlı Tuş Çubuğu", "Alt kısımda Grab / Fırlat / OtoFırlat / Fly / Noclip barını gösterir.", function()
+		return config.mobileQuickBar == true
+	end, function(value)
+		config.mobileQuickBar = value
+		fitWindowToViewport()
+	end)
+	sliderRow(mobileSection, "Hızlı Bar Ölçeği", 0.5, 1.3, 0.05, function()
+		return tonumber(config.mobileBarScale) or 0.85
+	end, function(value)
+		config.mobileBarScale = value
+		fitWindowToViewport()
+	end, function(value)
+		return string.format("%.2fx", value)
+	end)
+	buttonRow(mobileSection, "Konum", "Menüyü veya SC4 butonunu ekranın varsayılan yerine ortalar.", {
+		{ text = "Menüyü Ortala", accent = true, width = 96, callback = function()
+			mainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
+			notify("Mobil", "Menü ekranın ortasına alındı.", 2, theme.good)
+		end },
+		{ text = "SC4 Sıfırla", width = 76, callback = function()
+			mobileToggleBtn.Position = UDim2.new(0, 12, 0.5, -17)
+			notify("Mobil", "SC4 butonu sol kenara alındı.", 2, theme.good)
+		end },
+	})
 
 	local function resetAll()
 		if state.customGrab.active then
