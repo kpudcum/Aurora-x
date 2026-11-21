@@ -3923,6 +3923,38 @@ local function applyWalkSpeed()
 end
 
 -- ================================================================
+-- PLAYER (AuraX_main ile ayni sira: Home'dan hemen sonra 2. sekme)
+-- ================================================================
+local PlayerTab = Window:AddTab("Player", "o")
+
+local uA = PlayerTab:AddSection("Speed")
+makeToggle(uA, "Speed Boost", "SpeedBoost", function(on)
+    local humanoid = Game.getHumanoid()
+    if humanoid then
+        humanoid.WalkSpeed = on and (tonumber(Config.WalkSpeed) or 16) or 16
+    end
+end, true)
+makeSlider(uA, "Speed Value", "WalkSpeed", 16, 140, 2, function(value)
+    local humanoid = Game.getHumanoid()
+    if humanoid and Config.SpeedBoost == true then
+        humanoid.WalkSpeed = tonumber(value) or 16
+    end
+end)
+
+-- ================================================================
+-- SERVER (AuraX_main ile ayni sira: Player'dan hemen sonra 3. sekme)
+-- ================================================================
+local ServerTab = Window:AddTab("Server", "o")
+
+local uB = ServerTab:AddSection("Connection")
+makeToggle(uB, "Anti-AFK", "AntiAFK")
+makeButton(uB, "Rejoin", function()
+    if Actions.rejoin then
+        Actions.rejoin()
+    end
+end)
+
+-- ================================================================
 -- FARM
 -- ================================================================
 local Farm = Window:AddTab("Farm", "o")
@@ -4213,33 +4245,6 @@ makeButton(eB, "Reset Colors", function()
 end)
 
 -- ================================================================
--- PLAYER
--- ================================================================
-local PlayerTab = Window:AddTab("Player", "o")
-
-local uA = PlayerTab:AddSection("Speed")
-makeToggle(uA, "Speed Boost", "SpeedBoost", function(on)
-    local humanoid = Game.getHumanoid()
-    if humanoid then
-        humanoid.WalkSpeed = on and (tonumber(Config.WalkSpeed) or 16) or 16
-    end
-end, true)
-makeSlider(uA, "Speed Value", "WalkSpeed", 16, 140, 2, function(value)
-    local humanoid = Game.getHumanoid()
-    if humanoid and Config.SpeedBoost == true then
-        humanoid.WalkSpeed = tonumber(value) or 16
-    end
-end)
-
-local uB = PlayerTab:AddSection("Connection")
-makeToggle(uB, "Anti-AFK", "AntiAFK")
-makeButton(uB, "Rejoin", function()
-    if Actions.rejoin then
-        Actions.rejoin()
-    end
-end)
-
--- ================================================================
 -- HUD (yuzen, panel kapaliyken gorunur)
 -- ================================================================
 local applyHudScale
@@ -4338,41 +4343,6 @@ local function addSettingsSection(SettingsTab)
     makeToggle(sH, "Show HUD (when menu is closed)", "HUD")
     makeSlider(sH, "HUD Size", "HUDScale", 0.5, 1.6, 0.05, function()
         applyHudScale()
-    end)
-
-    local sA = SettingsTab:AddSection("Hub Settings")
-    makeToggle(sA, "RightShift Shortcut", "Keybind", function(on)
-        Aurora.ShiftToggle = on
-    end, true)
-    makeToggle(sA, "Notifications", "Notifications")
-    sA:AddInfo("Config file: " .. CONFIG_FILE)
-    makeButton(sA, "Save Hub Config", function()
-        saveConfig()
-        notify("Config saved.", "success")
-    end)
-    makeButton(sA, "Load Hub Config", function()
-        loadConfig()
-        refreshAllWidgets()
-        applyHudScale()
-        applyWalkSpeed()
-        setQuestGuiHidden(Config.AutoQuest == true)
-        Aurora.ShiftToggle = Config.Keybind ~= false
-        notify("Config loaded and UI refreshed.", "success")
-    end)
-    local sB = SettingsTab:AddSection("About", true)
-    sB:AddInfo("The hub does not force server-side values; it uses the game's own remotes.")
-    sB:AddInfo("Farm: aura / energy / smart farm\nRebirth: auto rebirth + SSJ1 form\nZone: auto unlock / teleport\nCombat: boss bot + PvP\nLoot: loot, prompts, quests, dragon ball, craft, gear\nESP: bosses, loot, dragon balls\nPlayer: speed, anti-AFK, rejoin")
-    makeButton(sB, "Hide Menu", function()
-        if Window.Minimize then
-            Window.Minimize()
-        else
-            Window.SetOpen(false)
-        end
-    end)
-    makeButton(sB, "Unload Script", function()
-        pcall(function()
-            gui:Destroy()
-        end)
     end)
 end
 
