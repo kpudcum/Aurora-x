@@ -5381,8 +5381,19 @@ local function bossGetLobbyFloorPosition()
     if #parts == 0 then
         return nil
     end
+    -- uzerinde durulabilen ve yeterince genis parcalari tercih et
+    local good = {}
+    for _, part in ipairs(parts) do
+        if part.CanCollide and part.Size.X * part.Size.Z >= 100 then
+            table.insert(good, part)
+        end
+    end
+    if #good > 0 then
+        parts = good
+    end
     local chosen = parts[math.random(1, #parts)]
-    return chosen.Position + Vector3.new(0, chosen.Size.Y * 0.5 + 5, 0)
+    local top = chosen.Position + chosen.CFrame.UpVector * (chosen.Size.Y * 0.5)
+    return top + Vector3.new(0, 4, 0)
 end
 
 local function bossSkyOrbitPos(bossPos, fromPos, dist, height, angleRad)
@@ -5518,8 +5529,8 @@ local function bossStep()
             AutoState.bossForceAura = nil
             AutoState.bossLobbyPos = bossGetLobbyFloorPosition()
             AutoState.bossFarmEnergy = true
+            AutoState.bossRcSession = nil
             fireFarm("stopAura", "StopFarmAura", 0)
-            fireFarm("farmEnergy", "FarmEnergy", 0)
             notify("Energy recharging on Lobby floor until 100%.", "warn", 4)
         end
     end
@@ -5531,20 +5542,131 @@ local function bossStep()
             AutoState.bossMode = "fight"
             AutoState.bossFarmEnergy = false
             AutoState.bossLobbyPos = nil
+            AutoState.bossRcSession = nil
             fireFarm("stopEnergy", "StopFarmEnergy", 0)
             AutoState.bossStatus = "Energy Full (100%)"
             return
         end
         AutoState.bossFarmEnergy = true
-        AutoState.bossStatus = string.format("Lobby Recharge (%.0f%%)", math.clamp(energyFrac * 100, 0, 100))
+
+        -- yeni sarj oturumu: sayaclari sifirla
+        if AutoState.bossRcSession ~= AutoState.bossEnergyAt then
+            AutoState.bossRcSession = AutoState.bossEnergyAt
+            AutoState.bossRcArrivedAt = nil
+            AutoState.bossRcTP = 0
+            AutoState.bossRcTPAt = 0
+            AutoState.bossLandTries = 0
+            AutoState.bossLandAt = 0
+            AutoState.bossFarmFireAt = 0
+            AutoState.bossRcFires = 0
+            AutoState.bossRcCheckAt = now + 5
+            AutoState.bossRcCheckE = energy
+        end
+
+        local farmingNow = character:GetAttribute("FarmingEnergy") == true
+        local canFarmNow = Game.readBool("CanFarmEnergy")
+        if canFarmNow == nil then
+            canFarmNow = character:GetAttribute("CanFarmEnergy") == true
+        end
+        local flyingNow = character:GetAttribute("Flying") == true
+        AutoState.bossStatus = string.format("Lobby Recharge (%.0f%%) %s | can:%s fly:%s",
+            math.clamp(energyFrac * 100, 0, 100),
+            farmingNow and "charging" or (flyingNow and "landing" or "starting"),
+            tostring(canFarmNow), tostring(flyingNow))
+
         if not AutoState.bossLobbyPos then
             AutoState.bossLobbyPos = bossGetLobbyFloorPosition()
         end
+
+        -- 1) Lobby'ye isinlan (kotu nokta olursa 4 denemede yeni nokta sec)
         if AutoState.bossLobbyPos and (myRoot.Position - AutoState.bossLobbyPos).Magnitude > 10 then
-            bossTeleport(myRoot, character, AutoState.bossLobbyPos, nil)
+            if now >= (AutoState.bossRcTPAt or 0) then
+                AutoState.bossRcTPAt = now + 0.6
+                AutoState.bossRcTP = (AutoState.bossRcTP or 0) + 1
+                if AutoState.bossRcTP > 4 then
+                    AutoState.bossRcTP = 1
+                    AutoState.bossLobbyPos = bossGetLobbyFloorPosition() or AutoState.bossLobbyPos
+                end
+                bossTeleport(myRoot, character, AutoState.bossLobbyPos, nil)
+                AutoState.bossRcArrivedAt = now
+            end
+            return
         end
-        if character:GetAttribute("FarmingEnergy") ~= true then
-            fireFarm("farmEnergy", "FarmEnergy", 0.5)
+
+        -- 2) Varista konumun sunucuya yerlesmesini bekle
+        if not AutoState.bossRcArrivedAt then
+            AutoState.bossRcArrivedAt = now - 1
+        end
+        if now - AutoState.bossRcArrivedAt < 0.5 then
+            return
+        end
+
+        -- 3) Ucuyorsa yere in (enerji farmi ucarken baslamayabilir)
+        if flyingNow and not farmingNow and (AutoState.bossLandTries or 0) < 3 and now >= (AutoState.bossLandAt or 0) then
+            AutoState.bossLandTries = (AutoState.bossLandTries or 0) + 1
+            AutoState.bossLandAt = now + 1
+            bossPressKey(Enum.KeyCode.Space, 0.04)
+            task.wait(0.07)
+            bossPressKey(Enum.KeyCode.Space, 0.04)
+            return
+        end
+
+        -- 4) Enerji farmini baslat (0.6 sn aralikla tekrar dener)
+        if not farmingNow then
+            if now >= (AutoState.bossFarmFireAt or 0) then
+                AutoState.bossFarmFireAt = now + 0.6
+                AutoState.bossRcFires = (AutoState.bossRcFires or 0) + 1
+                AutoState.lastFarmFire["farmEnergy"] = 0
+                fireFarm("farmEnergy", "FarmEnergy", 0)
+                -- remote ise yaramazsa oyunun kendi enerji butonuna bas
+                if AutoState.bossRcFires >= 4 and AutoState.bossRcFires % 3 == 1 then
+                    pcall(function()
+                        local pg = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+                        if not pg then
+                            return
+                        end
+                        for _, d in ipairs(pg:GetDescendants()) do
+                            if d:IsA("GuiButton") and d.Visible then
+                                local n = string.lower(d.Name)
+                                if n:find("energy", 1, true) and n:find("farm", 1, true) then
+                                    local fired = false
+                                    if type(getconnections) == "function" then
+                                        for _, sig in ipairs({ "Activated", "MouseButton1Click" }) do
+                                            for _, c in ipairs(getconnections(d[sig])) do
+                                                pcall(function()
+                                                    c:Fire()
+                                                end)
+                                                fired = true
+                                            end
+                                            if fired then
+                                                break
+                                            end
+                                        end
+                                    elseif type(firesignal) == "function" then
+                                        pcall(firesignal, d.Activated)
+                                    end
+                                    break
+                                end
+                            end
+                        end
+                    end)
+                end
+            end
+            AutoState.bossRcCheckAt = now + 5
+            AutoState.bossRcCheckE = energy
+            return
+        end
+
+        -- 5) Farm acik gorunuyor ama enerji artmiyorsa durdurup yeniden baslat
+        if now >= (AutoState.bossRcCheckAt or 0) then
+            if AutoState.bossRcCheckE and energy <= AutoState.bossRcCheckE + 1e-6 then
+                fireFarm("stopEnergy", "StopFarmEnergy", 0)
+                AutoState.bossFarmFireAt = now + 0.6
+                AutoState.bossLobbyPos = bossGetLobbyFloorPosition() or AutoState.bossLobbyPos
+                AutoState.bossRcTPAt = 0
+            end
+            AutoState.bossRcCheckAt = now + 5
+            AutoState.bossRcCheckE = energy
         end
         return
     end
