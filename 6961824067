@@ -2768,6 +2768,8 @@ hCredits:AddCredit("3qr311", "Scripter")
 		touchKillMode = "Void Kill",
 		touchKillRadius = 8,
 		touchKillPower = 2400,
+		antiRocketKill = false,
+		antiRocketIncludeBombs = false,
 		autoStruggle = false,
 		autoStruggleInterval = 0.02,
 		antiRagdoll = false,
@@ -2807,6 +2809,50 @@ hCredits:AddCredit("3qr311", "Scripter")
 	}
 
 	-- ---------------- GRAB TRACKER + SUPER THROW + SPIN ----------------
+	local grabCollideSaved = setmetatable({}, { __mode = "k" })
+	local function restoreGrabCollide()
+		if next(grabCollideSaved) == nil then return end
+		for p, v in pairs(grabCollideSaved) do
+			if p and p.Parent then pcall(function() p.CanCollide = v end) end
+		end
+		grabCollideSaved = setmetatable({}, { __mode = "k" })
+	end
+	local function setGrabNoCollide(part)
+		if not part or not part:IsDescendantOf(workspace) then return end
+		local myChar = LocalPlayer.Character
+		if myChar and part:IsDescendantOf(myChar) then return end
+		local function markPart(p)
+			if p:IsA("BasePart") and (not myChar or not p:IsDescendantOf(myChar)) then
+				if grabCollideSaved[p] == nil then grabCollideSaved[p] = p.CanCollide end
+				if p.CanCollide then p.CanCollide = false end
+			end
+		end
+		for _, p in ipairs(getAssemblyParts(part)) do markPart(p) end
+		local mdl = part:FindFirstAncestorOfClass("Model")
+		if mdl and mdl ~= workspace and mdl ~= myChar then
+			for _, d in ipairs(mdl:GetDescendants()) do markPart(d) end
+		end
+	end
+
+	-- Run BEFORE Roblox physics (Stepped) so held/spinning objects can NEVER collide with LocalPlayer!
+	sc4Connect(RunService.Stepped, function()
+		if sc4Unloaded then return end
+		if st.grabbedPart and st.grabbedPart:IsDescendantOf(workspace) and (cfg.spinHold or cfg.grabAnimEnabled or cfg.superThrow) then
+			setGrabNoCollide(st.grabbedPart)
+		end
+		if (cfg.spinHold or cfg.grabAnimEnabled or cfg.superThrow) and not cfg.fly then
+			local _, hum, hrp = getChar()
+			if hrp and hum and hum.Health > 0 then
+				if hrp.AssemblyLinearVelocity.Magnitude > 110 then
+					hrp.AssemblyLinearVelocity = Vector3.zero
+					hrp.AssemblyAngularVelocity = Vector3.zero
+				elseif hrp.AssemblyAngularVelocity.Magnitude > 18 then
+					hrp.AssemblyAngularVelocity = Vector3.zero
+				end
+			end
+		end
+	end)
+
 	sc4Connect(RunService.Heartbeat, function()
 		if sc4Unloaded then return end
 		local clone = workspace:FindFirstChild("GrabParts")
@@ -2814,16 +2860,33 @@ hCredits:AddCredit("3qr311", "Scripter")
 			local gp = clone:FindFirstChild("GrabPart")
 			local weld = gp and gp:FindFirstChildOfClass("WeldConstraint")
 			local part = weld and weld.Part1
-			if part and part:IsA("BasePart") and part:IsDescendantOf(workspace) then
+			local myChar = LocalPlayer.Character
+			if part and part:IsA("BasePart") and part:IsDescendantOf(workspace) and (not myChar or not part:IsDescendantOf(myChar)) then
 				st.grabbedPart = part
 				st.grabbedClone = clone
 				st.grabbedLastSeen = os.clock()
+				if cfg.spinHold or cfg.grabAnimEnabled or cfg.superThrow then
+					setGrabNoCollide(part)
+				end
 				return
 			end
 		end
-		if st.grabbedPart and (os.clock() - st.grabbedLastSeen > 0.6) then
+		if st.grabbedPart then
+			local dropped = st.grabbedPart
 			st.grabbedPart = nil
 			st.grabbedClone = nil
+			-- Kill leftover 600 rad/s spin on dropped object so walking near it can NEVER fling us!
+			if (cfg.spinHold or cfg.grabAnimEnabled) and (os.clock() - (st.lastThrowAt or 0) > 0.4) and dropped:IsDescendantOf(workspace) then
+				for _, p in ipairs(getAssemblyParts(dropped)) do
+					if p:IsA("BasePart") and not p.Anchored then
+						p.AssemblyAngularVelocity = Vector3.zero
+						if p.AssemblyLinearVelocity.Magnitude > 40 then
+							p.AssemblyLinearVelocity = Vector3.zero
+						end
+					end
+				end
+			end
+			restoreGrabCollide()
 		end
 	end)
 
@@ -2848,6 +2911,21 @@ hCredits:AddCredit("3qr311", "Scripter")
 		local vel = dir * speed + Vector3.new(0, tonumber(cfg.throwUpBoost) or 0, 0)
 		local ang = getSpinAxis() * (tonumber(cfg.spinSpeed) or 0)
 		local parts = getAssemblyParts(part)
+		local myChar = LocalPlayer.Character
+		if myChar and part:IsDescendantOf(myChar) then return end
+		local savedThrowCol = {}
+		for _, p in ipairs(parts) do
+			if p:IsA("BasePart") and not p.Anchored and p.CanCollide then
+				savedThrowCol[p] = true
+				p.CanCollide = false
+			end
+		end
+		task.delay(0.18, function()
+			for p in pairs(savedThrowCol) do
+				if p and p.Parent then pcall(function() p.CanCollide = true end) end
+			end
+		end)
+		st.lastThrowAt = os.clock()
 		st.throwToken = st.throwToken + 1
 		local tok = st.throwToken
 		task.spawn(function()
@@ -3208,12 +3286,21 @@ hCredits:AddCredit("3qr311", "Scripter")
 				spinVec = Vector3.new(20, 30, 20)
 			end
 
+			-- Keep animated object safely >= 9 studs away from our character even on close mobile camera
+			local fromMe = targetPos - hrp.Position
+			if fromMe.Magnitude < 9 then
+				local pushDir = fromMe.Magnitude > 0.05 and fromMe.Unit or (cam and cam.CFrame.LookVector or hrp.CFrame.LookVector)
+				targetPos = hrp.Position + pushDir * 9
+			end
 			local dragPart = st.grabbedClone and st.grabbedClone:FindFirstChild("DragPart")
 			if dragPart and dragPart:IsA("BasePart") then dragPart.Position = targetPos end
+			setGrabNoCollide(st.grabbedPart)
 			local diff = targetPos - st.grabbedPart.Position
+			local animVel = diff * 12
+			if animVel.Magnitude > 180 then animVel = animVel.Unit * 180 end
 			for _, p in ipairs(getAssemblyParts(st.grabbedPart)) do
 				if p:IsA("BasePart") and not p.Anchored then
-					p.AssemblyLinearVelocity = diff * 12
+					p.AssemblyLinearVelocity = animVel
 					p.AssemblyAngularVelocity = spinVec
 				end
 			end
@@ -3817,6 +3904,241 @@ hCredits:AddCredit("3qr311", "Scripter")
 		end
 	end)
 
+	-- ---------------- ANTI-ROCKET (FIND & KILL ROCKET SHOOTERS) ----------------
+	local rocketKillBusy = false
+	local rocketCooldown = {}
+
+	local function isRocketToyName(name)
+		if type(name) ~= "string" then return false end
+		if name == "BombMissile" or name == "FireworkMissile" then return true end
+		if cfg.antiRocketIncludeBombs then
+			if name == "BombDarkMatter" or name == "BombBalloon" or name == "FireworkSmokeBomb" then return true end
+		end
+		return false
+	end
+
+	local function findRocketShooters()
+		local found = {}
+		local seen = {}
+		local function addShooter(plr)
+			if not plr or plr == LocalPlayer or seen[plr] then return end
+			local c = plr.Character
+			local h = c and c:FindFirstChildOfClass("Humanoid")
+			local r = c and c:FindFirstChild("HumanoidRootPart")
+			if h and h.Health > 0 and r then
+				seen[plr] = true
+				table.insert(found, plr)
+			end
+		end
+
+		-- 1) Check every player's <Name>SpawnedInToys folder for missiles/rockets
+		for _, p in ipairs(Players:GetPlayers()) do
+			if p ~= LocalPlayer then
+				local folder = workspace:FindFirstChild(p.Name .. "SpawnedInToys")
+				if folder then
+					for _, child in ipairs(folder:GetChildren()) do
+						if isRocketToyName(child.Name) then
+							addShooter(p)
+							break
+						end
+					end
+				end
+			end
+		end
+
+		-- 2) Also check workspace.Other (map missiles) for PartOwner
+		local otherFolder = workspace:FindFirstChild("Other")
+		if otherFolder then
+			for _, child in ipairs(otherFolder:GetChildren()) do
+				if isRocketToyName(child.Name) then
+					for _, d in ipairs(child:GetDescendants()) do
+						if d.Name == "PartOwner" then
+							if d:IsA("ObjectValue") and d.Value and d.Value:IsA("Player") then
+								addShooter(d.Value)
+							elseif d:IsA("StringValue") and d.Value ~= "" then
+								local p = Players:FindFirstChild(d.Value)
+								if p then addShooter(p) end
+							end
+						end
+					end
+				end
+			end
+		end
+
+		return found
+	end
+
+	local function killRocketShooter(targetPlayer)
+		if sc4Unloaded or rocketKillBusy or touchKillBusy or autoFlingBusy then return false end
+		if not targetPlayer or targetPlayer == LocalPlayer then return false end
+		local now = os.clock()
+		if (rocketCooldown[targetPlayer] or 0) > now then return false end
+		if now < flingAbortUntil then return false end
+
+		local tChar = targetPlayer.Character
+		local tHum = tChar and tChar:FindFirstChildOfClass("Humanoid")
+		local tHRP = tChar and tChar:FindFirstChild("HumanoidRootPart")
+		local tTorso = tChar and (tChar:FindFirstChild("Torso") or tChar:FindFirstChild("UpperTorso") or tChar:FindFirstChild("Head"))
+		local myChar, myHum, hrp = getChar()
+		local poisonPart = getPoisonKillPart()
+		if not (tHum and tHum.Health > 0 and not tHum.Sit and tHRP and tTorso and myChar and myHum and myHum.Health > 0 and hrp and poisonPart) then return false end
+		if isPlayerInPlot(targetPlayer) then return false end
+
+		rocketKillBusy = true
+		local origCF = hrp.CFrame
+		local succeeded = false
+
+		local tempNoclip = {}
+		for _, d in ipairs(myChar:GetDescendants()) do
+			if d:IsA("BasePart") and d.CanCollide then
+				tempNoclip[d] = true
+				d.CanCollide = false
+			end
+		end
+		local function restoreNoclip()
+			if cfg.noclip then return end
+			for p in pairs(tempNoclip) do
+				if p and p.Parent then pcall(function() p.CanCollide = true end) end
+			end
+		end
+
+		pcall(function()
+			-- Step 1: Teleport behind rocket shooter & full server position sync (eliminates GameCorrectionsNotify!)
+			local startDist = (hrp.Position - tTorso.Position).Magnitude
+			if startDist > 12 then
+				local syncDur = math.max(0.45, getDynamicSyncTime() + 0.16)
+				local syncEnd = os.clock() + syncDur
+				while os.clock() < syncEnd and not sc4Unloaded do
+					if os.clock() < flingAbortUntil or not (tHRP and tHRP.Parent and tTorso and tTorso.Parent and hrp and hrp.Parent) then return end
+					local posNow = findClearStandPos(tHRP, tTorso, myChar, tChar)
+					hrp.CFrame = CFrame.lookAt(posNow, tTorso.Position)
+					hrp.AssemblyLinearVelocity = Vector3.zero
+					hrp.AssemblyAngularVelocity = Vector3.zero
+					RunService.Heartbeat:Wait()
+				end
+			end
+
+			if os.clock() < flingAbortUntil or not (tHRP and tHRP.Parent and tTorso and tTorso.Parent and hrp and hrp.Parent) then return end
+			local distNow = (hrp.Position - tTorso.Position).Magnitude
+			if distNow > 12 then return end
+
+			-- Step 2: Single clean grab on Torso (no spam) + wait for NetworkOwnership
+			local holdCF = hrp.CFrame
+			safeFire("CreateGrabLine", tTorso, CFrame.new())
+			safeFire("ExtendGrabLine", math.clamp(math.floor(distNow + 2), 6, 14))
+			safeFire("SetNetworkOwner", tTorso, CFrame.lookAt(hrp.Position + Vector3.new(0, 1.5, 0), tTorso.Position))
+
+			local ownStart = os.clock()
+			local ownEnd = ownStart + 0.36
+			local gotOwnership = (type(isnetworkowner) ~= "function")
+			while os.clock() < ownEnd and not sc4Unloaded do
+				if os.clock() < flingAbortUntil or not (tHRP and tHRP.Parent and tTorso and tTorso.Parent and hrp and hrp.Parent) then break end
+				hrp.CFrame = holdCF
+				hrp.AssemblyLinearVelocity = Vector3.zero
+				hrp.AssemblyAngularVelocity = Vector3.zero
+				if type(isnetworkowner) == "function" then
+					local ok1, o1 = pcall(isnetworkowner, tTorso)
+					local ok2, o2 = pcall(isnetworkowner, tHRP)
+					if (ok1 and o1) or (ok2 and o2) then
+						gotOwnership = true
+						break
+					end
+				end
+				RunService.Heartbeat:Wait()
+			end
+
+			-- Step 3: Exact Touch Poison Kill phase (zero GameCorrectionsNotify!)
+			if gotOwnership and os.clock() >= flingAbortUntil and tHRP and tHRP.Parent and tHRP:IsDescendantOf(workspace) then
+				succeeded = true
+				local parts = getAssemblyParts(tHRP)
+				local bp = Instance.new("BodyPosition")
+				bp.Name = "SC4RocketKillBP"
+				bp.MaxForce = Vector3.new(1e7, 1e7, 1e7)
+				bp.P = 1e6
+				bp.D = 100
+				bp.Position = poisonPart.Position
+				bp.Parent = tHRP
+
+				local killEnd = os.clock() + 0.65
+				while os.clock() < killEnd and not sc4Unloaded do
+					if os.clock() < flingAbortUntil or not (tHRP and tHRP.Parent and tHum and tHum.Health > 0) then break end
+					if hrp and hrp.Parent then
+						hrp.CFrame = holdCF
+						hrp.AssemblyLinearVelocity = Vector3.zero
+						hrp.AssemblyAngularVelocity = Vector3.zero
+					end
+					for _, p in ipairs(parts) do
+						if p:IsA("BasePart") and not p.Anchored then p.CanCollide = false end
+					end
+					tHRP.CFrame = poisonPart.CFrame
+					bp.Position = poisonPart.Position
+					if type(firetouchinterest) == "function" then
+						pcall(firetouchinterest, tHRP, poisonPart, 0)
+						pcall(firetouchinterest, tHRP, poisonPart, 1)
+					end
+					RunService.Heartbeat:Wait()
+				end
+				if bp and bp.Parent then bp:Destroy() end
+			end
+
+			safeFire("DestroyGrabLine", tTorso)
+			if startDist > 12 and hrp and hrp.Parent then
+				for _ = 1, 3 do
+					hrp.CFrame = origCF
+					hrp.AssemblyLinearVelocity = Vector3.zero
+					hrp.AssemblyAngularVelocity = Vector3.zero
+					RunService.Heartbeat:Wait()
+				end
+			end
+		end)
+
+		rocketCooldown[targetPlayer] = os.clock() + (succeeded and 4.0 or 1.5)
+		restoreNoclip()
+		rocketKillBusy = false
+		return succeeded
+	end
+
+	local function killRocketShootersNow()
+		task.spawn(function()
+			local list = findRocketShooters()
+			if #list == 0 then
+				Aurora:Notify("Anti-Rocket", "No active rocket shooters found.", 2, "info")
+				return
+			end
+			for _, plr in ipairs(list) do
+				if sc4Unloaded then break end
+				Aurora:Notify("Anti-Rocket", "Targeting rocket shooter: " .. plr.DisplayName, 2, "warn")
+				killRocketShooter(plr)
+			end
+		end)
+	end
+
+	-- Event-driven spawn detector: ONLY triggers when a player NEWLY SPAWNS a rocket/bomb in their SpawnedInToys folder!
+	local hookedRocketFolders = setmetatable({}, { __mode = "k" })
+	local function hookPlayerToyFolder(folder)
+		if sc4Unloaded or not folder or hookedRocketFolders[folder] then return end
+		local fname = folder.Name
+		if not string.find(fname, "SpawnedInToys", 1, true) then return end
+		local ownerName = string.sub(fname, 1, #fname - #"SpawnedInToys")
+		if ownerName == "" or ownerName == LocalPlayer.Name then return end
+		hookedRocketFolders[folder] = true
+		sc4Connect(folder.ChildAdded, function(child)
+			if sc4Unloaded or not cfg.antiRocketKill then return end
+			if not child or not isRocketToyName(child.Name) then return end
+			local shooter = Players:FindFirstChild(ownerName)
+			if shooter and shooter ~= LocalPlayer then
+				task.spawn(function()
+					Aurora:Notify("Anti-Rocket", shooter.DisplayName .. " spawned " .. child.Name, 2, "warn")
+					killRocketShooter(shooter)
+				end)
+			end
+		end)
+	end
+	for _, ch in ipairs(workspace:GetChildren()) do
+		hookPlayerToyFolder(ch)
+	end
+	sc4Connect(workspace.ChildAdded, hookPlayerToyFolder)
+
 	-- ---------------- TURBO STRUGGLE + ANTI-FLING + ANTI-RAGDOLL ----------------
 	sc4Connect(RunService.Heartbeat, function()
 		if sc4Unloaded then return end
@@ -4135,6 +4457,7 @@ hCredits:AddCredit("3qr311", "Scripter")
 		autoFling = { kind = "key", value = Enum.KeyCode.F },
 		flingOnce = { kind = "key", value = Enum.KeyCode.X },
 		touchKill = { kind = "key", value = Enum.KeyCode.T },
+		antiRocket = { kind = "key", value = Enum.KeyCode.K },
 		autoSpin = { kind = "key", value = Enum.KeyCode.B },
 		toyShape = { kind = "key", value = Enum.KeyCode.J },
 		fly = { kind = "key", value = Enum.KeyCode.G },
@@ -4461,6 +4784,17 @@ hCredits:AddCredit("3qr311", "Scripter")
 		if toggleRefs.touchKill then toggleRefs.touchKill.Set(not cfg.touchKillEnabled) end
 	end)
 	cTouchSec:AddSlider("Touch Radius (studs)", 4, 20, cfg.touchKillRadius, function(v) cfg.touchKillRadius = v end, 1)
+
+	local cRocketSec = CombatTab:AddSection("Anti-Rocket (Kill Rocket Shooters)")
+	cRocketSec:AddButton("Kill Rocket Shooters Now", killRocketShootersNow)
+	toggleRefs.antiRocket = cRocketSec:AddToggle("Auto Kill Rocket Shooters", cfg.antiRocketKill, function(v)
+		cfg.antiRocketKill = v
+		if mobileFloatBtns.antiRocket then mobileFloatBtns.antiRocket.paint() end
+	end)
+	cRocketSec:AddToggle("Include Bombs (DarkMatter / Balloon)", cfg.antiRocketIncludeBombs, function(v) cfg.antiRocketIncludeBombs = v end)
+	addKeyOrMobile(cRocketSec, "Anti-Rocket Key", "antiRocket", "RKT", 12, true, function() return cfg.antiRocketKill end, function()
+		if toggleRefs.antiRocket then toggleRefs.antiRocket.Set(not cfg.antiRocketKill) end
+	end)
 
 	-- 4. TOYS TAB
 	local ToysTab = Window:AddTab("Toys", "o")
@@ -4850,6 +5184,8 @@ hCredits:AddCredit("3qr311", "Scripter")
 				autoFlingOnce()
 			elseif matchesKey(input, keyBinds.touchKill) and toggleRefs.touchKill then
 				toggleRefs.touchKill.Set(not cfg.touchKillEnabled)
+			elseif matchesKey(input, keyBinds.antiRocket) and toggleRefs.antiRocket then
+				toggleRefs.antiRocket.Set(not cfg.antiRocketKill)
 			elseif matchesKey(input, keyBinds.autoSpin) and toggleRefs.autoSpin then
 				toggleRefs.autoSpin.Set(not cfg.autoSpinSpawned)
 			elseif matchesKey(input, keyBinds.toyShape) and toggleRefs.toyShape then
