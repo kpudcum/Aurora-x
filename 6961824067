@@ -2772,7 +2772,8 @@ hCredits:AddCredit("3qr311", "Scripter")
 
 		walkSpeed = 16,
 		jumpPower = 50,
-		hipHeight = 0,
+		hipHeight = 2,
+		hipHeightTouched = false,
 		lockMovement = false,
 		infiniteJump = false,
 		noCameraBob = false,
@@ -2797,6 +2798,7 @@ hCredits:AddCredit("3qr311", "Scripter")
 		slotTimeText = "Unknown",
 		slotReadyNotified = false,
 		selectedToy = nil,
+		toyCollideSaved = setmetatable({}, { __mode = "k" }),
 	}
 
 	-- ---------------- GRAB TRACKER + SUPER THROW + SPIN ----------------
@@ -2968,6 +2970,22 @@ hCredits:AddCredit("3qr311", "Scripter")
 		end
 
 		local myToys = getMySpawnedToys()
+		local toyControlActive = cfg.autoSpinSpawned or cfg.toyShapeEnabled or cfg.orbitToys or cfg.toyBlackHole or cfg.toyShield
+		if toyControlActive then
+			for _, toy in ipairs(myToys) do
+				for _, d in ipairs(toy:GetDescendants()) do
+					if d:IsA("BasePart") then
+						if st.toyCollideSaved[d] == nil then st.toyCollideSaved[d] = d.CanCollide end
+						if d.CanCollide then d.CanCollide = false end
+					end
+				end
+			end
+		elseif next(st.toyCollideSaved) ~= nil then
+			for p, v in pairs(st.toyCollideSaved) do
+				if p and p.Parent then pcall(function() p.CanCollide = v end) end
+			end
+			st.toyCollideSaved = setmetatable({}, { __mode = "k" })
+		end
 		if cfg.autoSpinSpawned then
 			local count = #myToys
 			if count > 0 then
@@ -3546,11 +3564,16 @@ hCredits:AddCredit("3qr311", "Scripter")
 		end
 		if cfg.antiRagdoll and hum and hum.Health > 0 then
 			pcall(function()
-				hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
-				hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+				if hum:GetStateEnabled(Enum.HumanoidStateType.Ragdoll) then
+					hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+				end
+				if hum:GetStateEnabled(Enum.HumanoidStateType.FallingDown) then
+					hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+				end
 				local cur = hum:GetState()
 				if cur == Enum.HumanoidStateType.Ragdoll or cur == Enum.HumanoidStateType.FallingDown then
 					hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+					if hrp then hrp.AssemblyAngularVelocity = Vector3.zero end
 				end
 			end)
 		end
@@ -3569,19 +3592,29 @@ hCredits:AddCredit("3qr311", "Scripter")
 		if on and hrp and hum then
 			if flyBV then flyBV:Destroy() end
 			if flyBG then flyBG:Destroy() end
+			hrp.AssemblyLinearVelocity = Vector3.zero
+			hrp.AssemblyAngularVelocity = Vector3.zero
+			if hum.FloorMaterial ~= Enum.Material.Air then
+				hrp.CFrame = hrp.CFrame + Vector3.new(0, 1.5, 0)
+			end
 			flyBV = Instance.new("BodyVelocity")
-			flyBV.MaxForce = Vector3.new(1e6, 1e6, 1e6)
+			flyBV.MaxForce = Vector3.new(9e4, 9e4, 9e4)
 			flyBV.Velocity = Vector3.zero
 			flyBV.Parent = hrp
 			flyBG = Instance.new("BodyGyro")
-			flyBG.MaxTorque = Vector3.new(1e6, 1e6, 1e6)
-			flyBG.P = 20000
-			flyBG.CFrame = workspace.CurrentCamera.CFrame
+			flyBG.MaxTorque = Vector3.new(9e4, 9e4, 9e4)
+			flyBG.P = 9000
+			flyBG.D = 500
+			flyBG.CFrame = workspace.CurrentCamera and workspace.CurrentCamera.CFrame or hrp.CFrame
 			flyBG.Parent = hrp
 			hum.PlatformStand = true
 		else
 			if flyBV then flyBV:Destroy(); flyBV = nil end
 			if flyBG then flyBG:Destroy(); flyBG = nil end
+			if hrp then
+				hrp.AssemblyLinearVelocity = Vector3.zero
+				hrp.AssemblyAngularVelocity = Vector3.zero
+			end
 			if hum then hum.PlatformStand = false end
 		end
 	end
@@ -3608,7 +3641,7 @@ hCredits:AddCredit("3qr311", "Scripter")
 			end
 			local char = LocalPlayer.Character
 			if char then
-				for _, pn in ipairs({ "Torso", "UpperTorso", "LowerTorso", "Head", "HumanoidRootPart" }) do
+				for _, pn in ipairs({ "Torso", "UpperTorso", "LowerTorso", "Head" }) do
 					local p = char:FindFirstChild(pn)
 					if p and p:IsA("BasePart") and noclipSaved[p] == nil then pcall(function() p.CanCollide = true end) end
 				end
@@ -3658,7 +3691,7 @@ hCredits:AddCredit("3qr311", "Scripter")
 			if math.abs(hum.WalkSpeed - cfg.walkSpeed) > 0.1 then hum.WalkSpeed = cfg.walkSpeed end
 			hum.UseJumpPower = true
 			if math.abs(hum.JumpPower - cfg.jumpPower) > 0.1 then hum.JumpPower = cfg.jumpPower end
-			if math.abs(hum.HipHeight - cfg.hipHeight) > 0.05 then hum.HipHeight = cfg.hipHeight end
+			if cfg.hipHeightTouched and math.abs(hum.HipHeight - cfg.hipHeight) > 0.05 then hum.HipHeight = cfg.hipHeight end
 		end
 	end)
 
@@ -4435,6 +4468,7 @@ hCredits:AddCredit("3qr311", "Scripter")
 	end, 5)
 	mSec1:AddSlider("HipHeight", -2, 15, cfg.hipHeight, function(v)
 		cfg.hipHeight = v
+		cfg.hipHeightTouched = true
 		local _, hum = getChar()
 		if hum then hum.HipHeight = v end
 	end, 0.5)
