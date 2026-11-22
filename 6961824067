@@ -2763,6 +2763,11 @@ hCredits:AddCredit("3qr311", "Scripter")
 		autoFlingMode = "All Players",
 		autoFlingPower = 1800,
 		autoFlingDelay = 0.15,
+		touchKillEnabled = false,
+		touchKillOnGrab = false,
+		touchKillMode = "Void Kill",
+		touchKillRadius = 8,
+		touchKillPower = 2400,
 		autoStruggle = false,
 		autoStruggleInterval = 0.02,
 		antiRagdoll = false,
@@ -3540,6 +3545,278 @@ hCredits:AddCredit("3qr311", "Scripter")
 		end
 	end)
 
+	-- ---------------- TOUCH KILL / VOID AURA (KILL OR FLING ANYONE WHO TOUCHES/GRABS US) ----------------
+	local touchKillBusy = false
+	local touchKillCooldown = {}
+
+	local function getPoisonKillPart()
+		local map = workspace:FindFirstChild("Map")
+		if not map then return nil end
+		local hole = map:FindFirstChild("Hole")
+		if hole then
+			local big = hole:FindFirstChild("PoisonBigHole")
+			local p1 = big and big:FindFirstChild("PoisonHurtPart")
+			if p1 and p1:IsA("BasePart") then return p1 end
+			local sm = hole:FindFirstChild("PoisonSmallHole")
+			local p2 = sm and sm:FindFirstChild("PoisonHurtPart")
+			if p2 and p2:IsA("BasePart") then return p2 end
+		end
+		local fac = map:FindFirstChild("FactoryIsland")
+		local cont = fac and fac:FindFirstChild("PoisonContainer")
+		local p3 = cont and cont:FindFirstChild("PoisonHurtPart")
+		if p3 and p3:IsA("BasePart") then return p3 end
+		for _, d in ipairs(map:GetDescendants()) do
+			if d:IsA("BasePart") and d.Name == "PoisonHurtPart" then return d end
+		end
+		return nil
+	end
+
+	local function findGrabberPlayer(myChar, hrp, now)
+		-- Layer 1: PartOwner value placed inside our character parts
+		if myChar then
+			for _, d in ipairs(myChar:GetDescendants()) do
+				if d.Name == "PartOwner" then
+					if d:IsA("ObjectValue") and d.Value and d.Value:IsA("Player") and d.Value ~= LocalPlayer then
+						if (touchKillCooldown[d.Value] or 0) <= now then return d.Value end
+					elseif d:IsA("StringValue") and d.Value ~= "" then
+						local p = Players:FindFirstChild(d.Value)
+						if p and p ~= LocalPlayer and (touchKillCooldown[p] or 0) <= now then return p end
+					end
+				end
+			end
+		end
+		-- Layer 2: Any other player's grab Beam attached to our character
+		if myChar then
+			for _, p in ipairs(Players:GetPlayers()) do
+				if p ~= LocalPlayer and (touchKillCooldown[p] or 0) <= now and p.Character then
+					for _, d in ipairs(p.Character:GetDescendants()) do
+						if d:IsA("Beam") then
+							local a0, a1 = d.Attachment0, d.Attachment1
+							if (a0 and a0:IsDescendantOf(myChar)) or (a1 and a1:IsDescendantOf(myChar)) then
+								return p
+							end
+						end
+					end
+				end
+			end
+		end
+		-- Layer 3: Closest alive player within 42 studs
+		local grabber, bestD = nil, 42
+		for _, p in ipairs(Players:GetPlayers()) do
+			if p ~= LocalPlayer and (touchKillCooldown[p] or 0) <= now then
+				local tChar = p.Character
+				local tHum = tChar and tChar:FindFirstChildOfClass("Humanoid")
+				local tHRP = tChar and tChar:FindFirstChild("HumanoidRootPart")
+				if tHum and tHum.Health > 0 and tHRP and hrp then
+					local d = (tHRP.Position - hrp.Position).Magnitude
+					if d < bestD then
+						bestD = d
+						grabber = p
+					end
+				end
+			end
+		end
+		return grabber
+	end
+
+	local function touchKillTarget(targetPlayer, fromGrab)
+		if sc4Unloaded or touchKillBusy or autoFlingBusy then return end
+		if not targetPlayer or targetPlayer == LocalPlayer then return end
+		local now = os.clock()
+		if (touchKillCooldown[targetPlayer] or 0) > now then return end
+		if now < flingAbortUntil then return end
+
+		local tChar = targetPlayer.Character
+		local tHum = tChar and tChar:FindFirstChildOfClass("Humanoid")
+		local tHRP = tChar and tChar:FindFirstChild("HumanoidRootPart")
+		local tTorso = tChar and (tChar:FindFirstChild("Torso") or tChar:FindFirstChild("UpperTorso") or tChar:FindFirstChild("Head"))
+		local myChar, myHum, hrp = getChar()
+		if not (tHum and tHum.Health > 0 and tHRP and tTorso and myChar and myHum and myHum.Health > 0 and hrp) then return end
+
+		touchKillBusy = true
+		local origCF = hrp.CFrame
+		local movedSelf = false
+		local succeeded = false
+
+		local tempNoclip = {}
+		for _, d in ipairs(myChar:GetDescendants()) do
+			if d:IsA("BasePart") and d.CanCollide then
+				tempNoclip[d] = true
+				d.CanCollide = false
+			end
+		end
+		local function restoreNoclip()
+			if cfg.noclip then return end
+			for p in pairs(tempNoclip) do
+				if p and p.Parent then pcall(function() p.CanCollide = true end) end
+			end
+		end
+
+		pcall(function()
+			-- Step 1: Zero-delay parallel Struggle (if grabbed) + CreateGrabLine + SetNetworkOwner on Frame 1!
+			local held = fromGrab and LocalPlayer:FindFirstChild("IsHeld") or nil
+			if fromGrab then
+				safeFire("Struggle")
+				safeFire("Struggle")
+			end
+			local distNow = (hrp.Position - tTorso.Position).Magnitude
+			safeFire("CreateGrabLine", tTorso, CFrame.new())
+			safeFire("ExtendGrabLine", math.clamp(math.floor(distNow + 4), 6, 30))
+			safeFire("SetNetworkOwner", tTorso, CFrame.lookAt(hrp.Position + Vector3.new(0, 1.5, 0), tTorso.Position))
+
+			local ownStart = os.clock()
+			local ownEnd = ownStart + 0.65
+			local lastRefire = ownStart
+			local gotOwnership = (type(isnetworkowner) ~= "function")
+			while os.clock() < ownEnd and not sc4Unloaded do
+				if os.clock() < flingAbortUntil or not (tHRP and tHRP.Parent and tTorso and tTorso.Parent and hrp and hrp.Parent) then break end
+				if fromGrab and held and held.Value == true then
+					safeFire("Struggle")
+				end
+				if type(isnetworkowner) == "function" then
+					local ok1, o1 = pcall(isnetworkowner, tTorso)
+					local ok2, o2 = pcall(isnetworkowner, tHRP)
+					if (ok1 and o1) or (ok2 and o2) then
+						gotOwnership = true
+						break
+					end
+				end
+				local tNow = os.clock()
+				if (tNow - lastRefire) >= 0.05 then
+					lastRefire = tNow
+					local dLoop = (hrp.Position - tTorso.Position).Magnitude
+					safeFire("CreateGrabLine", tTorso, CFrame.new())
+					safeFire("ExtendGrabLine", math.clamp(math.floor(dLoop + 4), 6, 30))
+					safeFire("SetNetworkOwner", tTorso, CFrame.lookAt(hrp.Position + Vector3.new(0, 1.5, 0), tTorso.Position))
+				end
+				RunService.Heartbeat:Wait()
+			end
+
+			-- Step 2: Instant Poison Kill from where we stand (zero self-teleport!)
+			if gotOwnership and os.clock() >= flingAbortUntil and tHRP and tHRP.Parent and tHRP:IsDescendantOf(workspace) then
+				local poisonPart = getPoisonKillPart()
+				if poisonPart then
+					succeeded = true
+					local parts = getAssemblyParts(tHRP)
+					local bp = Instance.new("BodyPosition")
+					bp.Name = "SC4TouchKillBP"
+					bp.MaxForce = Vector3.new(1e7, 1e7, 1e7)
+					bp.P = 1e6
+					bp.D = 100
+					bp.Position = poisonPart.Position
+					bp.Parent = tHRP
+
+					local killEnd = os.clock() + 0.65
+					while os.clock() < killEnd and not sc4Unloaded do
+						if not (tHRP and tHRP.Parent and tHum and tHum.Health > 0) then break end
+						for _, p in ipairs(parts) do
+							if p:IsA("BasePart") and not p.Anchored then p.CanCollide = false end
+						end
+						tHRP.CFrame = poisonPart.CFrame
+						bp.Position = poisonPart.Position
+						if type(firetouchinterest) == "function" then
+							pcall(firetouchinterest, tHRP, poisonPart, 0)
+							pcall(firetouchinterest, tHRP, poisonPart, 1)
+						end
+						RunService.Heartbeat:Wait()
+					end
+					if bp and bp.Parent then bp:Destroy() end
+				end
+			end
+
+			safeFire("DestroyGrabLine", tTorso)
+		end)
+		touchKillCooldown[targetPlayer] = os.clock() + (succeeded and 2.2 or 0.4)
+		restoreNoclip()
+		touchKillBusy = false
+	end
+
+	-- Direct .Touched hook on our character parts for instant contact detection
+	local touchConns = {}
+	local function bindCharTouch(char)
+		for _, c in ipairs(touchConns) do pcall(function() c:Disconnect() end) end
+		touchConns = {}
+		if not char then return end
+		for _, partName in ipairs({ "HumanoidRootPart", "Torso", "UpperTorso", "LowerTorso" }) do
+			local pt = char:FindFirstChild(partName)
+			if pt and pt:IsA("BasePart") then
+				table.insert(touchConns, sc4Connect(pt.Touched, function(hit)
+					if sc4Unloaded or not cfg.touchKillEnabled or touchKillBusy then return end
+					local model = hit and hit:FindFirstAncestorOfClass("Model")
+					if not model or model == LocalPlayer.Character then return end
+					local plr = Players:GetPlayerFromCharacter(model)
+					if plr and plr ~= LocalPlayer then
+						task.spawn(touchKillTarget, plr)
+					end
+				end))
+			end
+		end
+	end
+	if LocalPlayer.Character then bindCharTouch(LocalPlayer.Character) end
+	sc4Connect(LocalPlayer.CharacterAdded, function(c)
+		task.wait(0.6)
+		if not sc4Unloaded then bindCharTouch(c) end
+	end)
+
+	-- Proximity aura + grab-retaliation scanner (works even when player-to-player collisions are off)
+	sc4Connect(RunService.Heartbeat, function()
+		if sc4Unloaded or touchKillBusy or autoFlingBusy then return end
+		if not cfg.touchKillEnabled and not cfg.touchKillOnGrab then return end
+		local _, myHum, hrp = getChar()
+		if not (hrp and myHum and myHum.Health > 0) then return end
+		local now = os.clock()
+
+		if cfg.touchKillEnabled then
+			local rad = math.clamp(tonumber(cfg.touchKillRadius) or 8, 4, 20)
+			local closestPlr, closestDist = nil, rad
+			for _, p in ipairs(Players:GetPlayers()) do
+				if p ~= LocalPlayer and (touchKillCooldown[p] or 0) <= now then
+					local tChar = p.Character
+					local tHum = tChar and tChar:FindFirstChildOfClass("Humanoid")
+					local tHRP = tChar and tChar:FindFirstChild("HumanoidRootPart")
+					if tHum and tHum.Health > 0 and tHRP then
+						local d = (tHRP.Position - hrp.Position).Magnitude
+						if d <= closestDist then
+							closestDist = d
+							closestPlr = p
+						end
+					end
+				end
+			end
+			if closestPlr then
+				task.spawn(touchKillTarget, closestPlr)
+				return
+			end
+		end
+
+		if cfg.touchKillOnGrab then
+			local held = LocalPlayer:FindFirstChild("IsHeld")
+			if held and held.Value == true then
+				local myChar = LocalPlayer.Character
+				local grabber = findGrabberPlayer(myChar, hrp, now)
+				if grabber then
+					task.spawn(touchKillTarget, grabber, true)
+				end
+			end
+		end
+	end)
+
+	-- Instant event-driven trigger the millisecond IsHeld becomes true (0ms delay)
+	task.spawn(function()
+		local heldObj = LocalPlayer:WaitForChild("IsHeld", 10)
+		if heldObj and not sc4Unloaded then
+			sc4Connect(heldObj.Changed, function(val)
+				if sc4Unloaded or not cfg.touchKillOnGrab or not val or touchKillBusy or autoFlingBusy then return end
+				local myChar, myHum, hrp = getChar()
+				if not (myChar and myHum and myHum.Health > 0 and hrp) then return end
+				local grabber = findGrabberPlayer(myChar, hrp, os.clock())
+				if grabber then
+					task.spawn(touchKillTarget, grabber, true)
+				end
+			end)
+		end
+	end)
+
 	-- ---------------- TURBO STRUGGLE + ANTI-FLING + ANTI-RAGDOLL ----------------
 	sc4Connect(RunService.Heartbeat, function()
 		if sc4Unloaded then return end
@@ -3857,6 +4134,7 @@ hCredits:AddCredit("3qr311", "Scripter")
 		hover = { kind = "key", value = Enum.KeyCode.H },
 		autoFling = { kind = "key", value = Enum.KeyCode.F },
 		flingOnce = { kind = "key", value = Enum.KeyCode.X },
+		touchKill = { kind = "key", value = Enum.KeyCode.T },
 		autoSpin = { kind = "key", value = Enum.KeyCode.B },
 		toyShape = { kind = "key", value = Enum.KeyCode.J },
 		fly = { kind = "key", value = Enum.KeyCode.G },
@@ -4172,6 +4450,17 @@ hCredits:AddCredit("3qr311", "Scripter")
 	cSec2:AddToggle("Turbo Auto Struggle", cfg.autoStruggle, function(v) cfg.autoStruggle = v end)
 	cSec2:AddToggle("Disable Ragdoll Blur", cfg.noRagdollBlur, function(v) cfg.noRagdollBlur = v end)
 	cSec2:AddSlider("Struggle Interval (s)", 0.01, 1, cfg.autoStruggleInterval, function(v) cfg.autoStruggleInterval = v end, 0.01)
+
+	local cTouchSec = CombatTab:AddSection("Touch Poison Kill")
+	toggleRefs.touchKill = cTouchSec:AddToggle("Touch Poison Kill", cfg.touchKillEnabled, function(v)
+		cfg.touchKillEnabled = v
+		if mobileFloatBtns.touchKill then mobileFloatBtns.touchKill.paint() end
+	end)
+	cTouchSec:AddToggle("Retaliate When Grabbed", cfg.touchKillOnGrab, function(v) cfg.touchKillOnGrab = v end)
+	addKeyOrMobile(cTouchSec, "Touch Kill Key", "touchKill", "TKL", 11, true, function() return cfg.touchKillEnabled end, function()
+		if toggleRefs.touchKill then toggleRefs.touchKill.Set(not cfg.touchKillEnabled) end
+	end)
+	cTouchSec:AddSlider("Touch Radius (studs)", 4, 20, cfg.touchKillRadius, function(v) cfg.touchKillRadius = v end, 1)
 
 	-- 4. TOYS TAB
 	local ToysTab = Window:AddTab("Toys", "o")
@@ -4559,6 +4848,8 @@ hCredits:AddCredit("3qr311", "Scripter")
 				toggleRefs.autoFling.Set(not cfg.autoFlingEnabled)
 			elseif matchesKey(input, keyBinds.flingOnce) then
 				autoFlingOnce()
+			elseif matchesKey(input, keyBinds.touchKill) and toggleRefs.touchKill then
+				toggleRefs.touchKill.Set(not cfg.touchKillEnabled)
 			elseif matchesKey(input, keyBinds.autoSpin) and toggleRefs.autoSpin then
 				toggleRefs.autoSpin.Set(not cfg.autoSpinSpawned)
 			elseif matchesKey(input, keyBinds.toyShape) and toggleRefs.toyShape then
