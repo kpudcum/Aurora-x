@@ -2697,12 +2697,17 @@ hCredits:AddCredit("3qr311", "Scripter")
 
 	local function getAssemblyParts(part)
 		local parts = {}
-		if part and part.Parent and part.Parent:IsA("Model") and part.Parent ~= workspace then
-			for _, child in ipairs(part.Parent:GetDescendants()) do
-				if child:IsA("BasePart") then table.insert(parts, child) end
+		local myChar = LocalPlayer.Character
+		local mapF = workspace:FindFirstChild("Map")
+		local plotF = workspace:FindFirstChild("PlotItems")
+		if part and part.Parent and part.Parent:IsA("Model") and part.Parent ~= workspace and part.Parent ~= myChar and part.Parent ~= mapF and part.Parent ~= plotF then
+			if (not mapF or not part.Parent:IsDescendantOf(mapF)) and (not plotF or not part.Parent:IsDescendantOf(plotF)) then
+				for _, child in ipairs(part.Parent:GetDescendants()) do
+					if child:IsA("BasePart") and not child.Anchored then table.insert(parts, child) end
+				end
 			end
 		end
-		if #parts == 0 and part then parts = { part } end
+		if #parts == 0 and part and not part.Anchored then parts = { part } end
 		return parts
 	end
 
@@ -2809,50 +2814,6 @@ hCredits:AddCredit("3qr311", "Scripter")
 	}
 
 	-- ---------------- GRAB TRACKER + SUPER THROW + SPIN ----------------
-	local grabCollideSaved = setmetatable({}, { __mode = "k" })
-	local function restoreGrabCollide()
-		if next(grabCollideSaved) == nil then return end
-		for p, v in pairs(grabCollideSaved) do
-			if p and p.Parent then pcall(function() p.CanCollide = v end) end
-		end
-		grabCollideSaved = setmetatable({}, { __mode = "k" })
-	end
-	local function setGrabNoCollide(part)
-		if not part or not part:IsDescendantOf(workspace) then return end
-		local myChar = LocalPlayer.Character
-		if myChar and part:IsDescendantOf(myChar) then return end
-		local function markPart(p)
-			if p:IsA("BasePart") and (not myChar or not p:IsDescendantOf(myChar)) then
-				if grabCollideSaved[p] == nil then grabCollideSaved[p] = p.CanCollide end
-				if p.CanCollide then p.CanCollide = false end
-			end
-		end
-		for _, p in ipairs(getAssemblyParts(part)) do markPart(p) end
-		local mdl = part:FindFirstAncestorOfClass("Model")
-		if mdl and mdl ~= workspace and mdl ~= myChar then
-			for _, d in ipairs(mdl:GetDescendants()) do markPart(d) end
-		end
-	end
-
-	-- Run BEFORE Roblox physics (Stepped) so held/spinning objects can NEVER collide with LocalPlayer!
-	sc4Connect(RunService.Stepped, function()
-		if sc4Unloaded then return end
-		if st.grabbedPart and st.grabbedPart:IsDescendantOf(workspace) and (cfg.spinHold or cfg.grabAnimEnabled or cfg.superThrow) then
-			setGrabNoCollide(st.grabbedPart)
-		end
-		if (cfg.spinHold or cfg.grabAnimEnabled or cfg.superThrow) and not cfg.fly then
-			local _, hum, hrp = getChar()
-			if hrp and hum and hum.Health > 0 then
-				if hrp.AssemblyLinearVelocity.Magnitude > 110 then
-					hrp.AssemblyLinearVelocity = Vector3.zero
-					hrp.AssemblyAngularVelocity = Vector3.zero
-				elseif hrp.AssemblyAngularVelocity.Magnitude > 18 then
-					hrp.AssemblyAngularVelocity = Vector3.zero
-				end
-			end
-		end
-	end)
-
 	sc4Connect(RunService.Heartbeat, function()
 		if sc4Unloaded then return end
 		local clone = workspace:FindFirstChild("GrabParts")
@@ -2861,13 +2822,10 @@ hCredits:AddCredit("3qr311", "Scripter")
 			local weld = gp and gp:FindFirstChildOfClass("WeldConstraint")
 			local part = weld and weld.Part1
 			local myChar = LocalPlayer.Character
-			if part and part:IsA("BasePart") and part:IsDescendantOf(workspace) and (not myChar or not part:IsDescendantOf(myChar)) then
+			if part and part:IsA("BasePart") and not part.Anchored and part:IsDescendantOf(workspace) and (not myChar or not part:IsDescendantOf(myChar)) then
 				st.grabbedPart = part
 				st.grabbedClone = clone
 				st.grabbedLastSeen = os.clock()
-				if cfg.spinHold or cfg.grabAnimEnabled or cfg.superThrow then
-					setGrabNoCollide(part)
-				end
 				return
 			end
 		end
@@ -2875,7 +2833,6 @@ hCredits:AddCredit("3qr311", "Scripter")
 			local dropped = st.grabbedPart
 			st.grabbedPart = nil
 			st.grabbedClone = nil
-			-- Kill leftover 600 rad/s spin on dropped object so walking near it can NEVER fling us!
 			if (cfg.spinHold or cfg.grabAnimEnabled) and (os.clock() - (st.lastThrowAt or 0) > 0.4) and dropped:IsDescendantOf(workspace) then
 				for _, p in ipairs(getAssemblyParts(dropped)) do
 					if p:IsA("BasePart") and not p.Anchored then
@@ -2886,7 +2843,6 @@ hCredits:AddCredit("3qr311", "Scripter")
 					end
 				end
 			end
-			restoreGrabCollide()
 		end
 	end)
 
@@ -2913,18 +2869,6 @@ hCredits:AddCredit("3qr311", "Scripter")
 		local parts = getAssemblyParts(part)
 		local myChar = LocalPlayer.Character
 		if myChar and part:IsDescendantOf(myChar) then return end
-		local savedThrowCol = {}
-		for _, p in ipairs(parts) do
-			if p:IsA("BasePart") and not p.Anchored and p.CanCollide then
-				savedThrowCol[p] = true
-				p.CanCollide = false
-			end
-		end
-		task.delay(0.18, function()
-			for p in pairs(savedThrowCol) do
-				if p and p.Parent then pcall(function() p.CanCollide = true end) end
-			end
-		end)
 		st.lastThrowAt = os.clock()
 		st.throwToken = st.throwToken + 1
 		local tok = st.throwToken
@@ -3057,7 +3001,7 @@ hCredits:AddCredit("3qr311", "Scripter")
 		if toyControlActive then
 			for _, toy in ipairs(myToys) do
 				for _, d in ipairs(toy:GetDescendants()) do
-					if d:IsA("BasePart") then
+					if d:IsA("BasePart") and not d.Anchored then
 						if st.toyCollideSaved[d] == nil then st.toyCollideSaved[d] = d.CanCollide end
 						if d.CanCollide then d.CanCollide = false end
 					end
@@ -3294,7 +3238,6 @@ hCredits:AddCredit("3qr311", "Scripter")
 			end
 			local dragPart = st.grabbedClone and st.grabbedClone:FindFirstChild("DragPart")
 			if dragPart and dragPart:IsA("BasePart") then dragPart.Position = targetPos end
-			setGrabNoCollide(st.grabbedPart)
 			local diff = targetPos - st.grabbedPart.Position
 			local animVel = diff * 12
 			if animVel.Magnitude > 180 then animVel = animVel.Unit * 180 end
@@ -3417,21 +3360,7 @@ hCredits:AddCredit("3qr311", "Scripter")
 		if not (myChar and hrp and hrp.Parent) then return false end
 
 		local power = math.clamp(tonumber(cfg.autoFlingPower) or 1800, 200, 4500)
-
-		-- Temporary noclip on self so we never collide/fly
-		local tempNoclip = {}
-		for _, d in ipairs(myChar:GetDescendants()) do
-			if d:IsA("BasePart") and d.CanCollide then
-				tempNoclip[d] = true
-				d.CanCollide = false
-			end
-		end
-		local function restoreNoclip()
-			if cfg.noclip then return end
-			for p in pairs(tempNoclip) do
-				if p and p.Parent then pcall(function() p.CanCollide = true end) end
-			end
-		end
+		local function restoreNoclip() end
 
 		-- STEP 1: Sync position behind target so server confirms we are in grab range
 		local syncEnd = os.clock() + getDynamicSyncTime()
@@ -3724,36 +3653,25 @@ hCredits:AddCredit("3qr311", "Scripter")
 		local origCF = hrp.CFrame
 		local movedSelf = false
 		local succeeded = false
-
-		local tempNoclip = {}
-		for _, d in ipairs(myChar:GetDescendants()) do
-			if d:IsA("BasePart") and d.CanCollide then
-				tempNoclip[d] = true
-				d.CanCollide = false
-			end
-		end
-		local function restoreNoclip()
-			if cfg.noclip then return end
-			for p in pairs(tempNoclip) do
-				if p and p.Parent then pcall(function() p.CanCollide = true end) end
-			end
-		end
+		local function restoreNoclip() end
 
 		pcall(function()
-			-- Step 1: Zero-delay parallel Struggle (if grabbed) + CreateGrabLine + SetNetworkOwner on Frame 1!
+			-- Step 1: Zero-delay parallel Struggle (if grabbed) + single clean Grab (no spam, <= 16 studs so GameCorrectionsNotify never fires!)
 			local held = fromGrab and LocalPlayer:FindFirstChild("IsHeld") or nil
 			if fromGrab then
 				safeFire("Struggle")
 				safeFire("Struggle")
 			end
 			local distNow = (hrp.Position - tTorso.Position).Magnitude
+			if distNow > 16 then return end
+
 			safeFire("CreateGrabLine", tTorso, CFrame.new())
-			safeFire("ExtendGrabLine", math.clamp(math.floor(distNow + 4), 6, 30))
+			safeFire("ExtendGrabLine", math.clamp(math.floor(distNow + 2), 6, 18))
 			safeFire("SetNetworkOwner", tTorso, CFrame.lookAt(hrp.Position + Vector3.new(0, 1.5, 0), tTorso.Position))
 
 			local ownStart = os.clock()
-			local ownEnd = ownStart + 0.65
-			local lastRefire = ownStart
+			local ownEnd = ownStart + 0.55
+			local refired = false
 			local gotOwnership = (type(isnetworkowner) ~= "function")
 			while os.clock() < ownEnd and not sc4Unloaded do
 				if os.clock() < flingAbortUntil or not (tHRP and tHRP.Parent and tTorso and tTorso.Parent and hrp and hrp.Parent) then break end
@@ -3768,12 +3686,8 @@ hCredits:AddCredit("3qr311", "Scripter")
 						break
 					end
 				end
-				local tNow = os.clock()
-				if (tNow - lastRefire) >= 0.05 then
-					lastRefire = tNow
-					local dLoop = (hrp.Position - tTorso.Position).Magnitude
-					safeFire("CreateGrabLine", tTorso, CFrame.new())
-					safeFire("ExtendGrabLine", math.clamp(math.floor(dLoop + 4), 6, 30))
+				if not refired and (os.clock() - ownStart) >= 0.18 and (hrp.Position - tTorso.Position).Magnitude <= 16 then
+					refired = true
 					safeFire("SetNetworkOwner", tTorso, CFrame.lookAt(hrp.Position + Vector3.new(0, 1.5, 0), tTorso.Position))
 				end
 				RunService.Heartbeat:Wait()
@@ -3971,6 +3885,7 @@ hCredits:AddCredit("3qr311", "Scripter")
 	local function killRocketShooter(targetPlayer)
 		if sc4Unloaded or rocketKillBusy or touchKillBusy or autoFlingBusy then return false end
 		if not targetPlayer or targetPlayer == LocalPlayer then return false end
+		if isPlayerInPlot(targetPlayer) then return false end
 		local now = os.clock()
 		if (rocketCooldown[targetPlayer] or 0) > now then return false end
 		if now < flingAbortUntil then return false end
@@ -3981,55 +3896,38 @@ hCredits:AddCredit("3qr311", "Scripter")
 		local tTorso = tChar and (tChar:FindFirstChild("Torso") or tChar:FindFirstChild("UpperTorso") or tChar:FindFirstChild("Head"))
 		local myChar, myHum, hrp = getChar()
 		local poisonPart = getPoisonKillPart()
-		if not (tHum and tHum.Health > 0 and not tHum.Sit and tHRP and tTorso and myChar and myHum and myHum.Health > 0 and hrp and poisonPart) then return false end
-		if isPlayerInPlot(targetPlayer) then return false end
+		if not (tHum and tHum.Health > 0 and tHRP and tTorso and myChar and myHum and myHum.Health > 0 and hrp and poisonPart) then return false end
 
 		rocketKillBusy = true
 		local origCF = hrp.CFrame
 		local succeeded = false
-
-		local tempNoclip = {}
-		for _, d in ipairs(myChar:GetDescendants()) do
-			if d:IsA("BasePart") and d.CanCollide then
-				tempNoclip[d] = true
-				d.CanCollide = false
-			end
-		end
-		local function restoreNoclip()
-			if cfg.noclip then return end
-			for p in pairs(tempNoclip) do
-				if p and p.Parent then pcall(function() p.CanCollide = true end) end
-			end
-		end
+		local function restoreNoclip() end
 
 		pcall(function()
-			-- Step 1: Teleport behind rocket shooter & full server position sync (eliminates GameCorrectionsNotify!)
-			local startDist = (hrp.Position - tTorso.Position).Magnitude
-			if startDist > 12 then
-				local syncDur = math.max(0.45, getDynamicSyncTime() + 0.16)
-				local syncEnd = os.clock() + syncDur
-				while os.clock() < syncEnd and not sc4Unloaded do
-					if os.clock() < flingAbortUntil or not (tHRP and tHRP.Parent and tTorso and tTorso.Parent and hrp and hrp.Parent) then return end
-					local posNow = findClearStandPos(tHRP, tTorso, myChar, tChar)
-					hrp.CFrame = CFrame.lookAt(posNow, tTorso.Position)
-					hrp.AssemblyLinearVelocity = Vector3.zero
-					hrp.AssemblyAngularVelocity = Vector3.zero
-					RunService.Heartbeat:Wait()
-				end
+			-- Step 1: Teleport behind rocket shooter & ping-sync first so server sees us in legal grab range (prevents GameCorrectionsNotify!)
+			local syncEnd = os.clock() + getDynamicSyncTime() + 0.08
+			while os.clock() < syncEnd and not sc4Unloaded do
+				if os.clock() < flingAbortUntil or not (tHRP and tHRP.Parent and tTorso and tTorso.Parent and hrp and hrp.Parent) then return end
+				local posNow = findClearStandPos(tHRP, tTorso, myChar, tChar)
+				hrp.CFrame = CFrame.lookAt(posNow, tTorso.Position)
+				hrp.AssemblyLinearVelocity = Vector3.zero
+				hrp.AssemblyAngularVelocity = Vector3.zero
+				RunService.Heartbeat:Wait()
 			end
 
 			if os.clock() < flingAbortUntil or not (tHRP and tHRP.Parent and tTorso and tTorso.Parent and hrp and hrp.Parent) then return end
 			local distNow = (hrp.Position - tTorso.Position).Magnitude
-			if distNow > 12 then return end
+			if distNow > 16 then return end
 
 			-- Step 2: Single clean grab on Torso (no spam) + wait for NetworkOwnership
 			local holdCF = hrp.CFrame
 			safeFire("CreateGrabLine", tTorso, CFrame.new())
-			safeFire("ExtendGrabLine", math.clamp(math.floor(distNow + 2), 6, 14))
+			safeFire("ExtendGrabLine", math.clamp(math.floor(distNow + 2), 6, 18))
 			safeFire("SetNetworkOwner", tTorso, CFrame.lookAt(hrp.Position + Vector3.new(0, 1.5, 0), tTorso.Position))
 
 			local ownStart = os.clock()
-			local ownEnd = ownStart + 0.36
+			local ownEnd = ownStart + 0.40
+			local refired = false
 			local gotOwnership = (type(isnetworkowner) ~= "function")
 			while os.clock() < ownEnd and not sc4Unloaded do
 				if os.clock() < flingAbortUntil or not (tHRP and tHRP.Parent and tTorso and tTorso.Parent and hrp and hrp.Parent) then break end
@@ -4044,10 +3942,14 @@ hCredits:AddCredit("3qr311", "Scripter")
 						break
 					end
 				end
+				if not refired and (os.clock() - ownStart) >= 0.16 and (hrp.Position - tTorso.Position).Magnitude <= 16 then
+					refired = true
+					safeFire("SetNetworkOwner", tTorso, CFrame.lookAt(hrp.Position + Vector3.new(0, 1.5, 0), tTorso.Position))
+				end
 				RunService.Heartbeat:Wait()
 			end
 
-			-- Step 3: Exact Touch Poison Kill phase (zero GameCorrectionsNotify!)
+			-- Step 3: Exact Touch Poison Kill phase (no teleport to poison hole, zero GameCorrectionsNotify!)
 			if gotOwnership and os.clock() >= flingAbortUntil and tHRP and tHRP.Parent and tHRP:IsDescendantOf(workspace) then
 				succeeded = true
 				local parts = getAssemblyParts(tHRP)
@@ -4082,7 +3984,7 @@ hCredits:AddCredit("3qr311", "Scripter")
 			end
 
 			safeFire("DestroyGrabLine", tTorso)
-			if startDist > 12 and hrp and hrp.Parent then
+			if hrp and hrp.Parent then
 				for _ = 1, 3 do
 					hrp.CFrame = origCF
 					hrp.AssemblyLinearVelocity = Vector3.zero
@@ -4092,7 +3994,7 @@ hCredits:AddCredit("3qr311", "Scripter")
 			end
 		end)
 
-		rocketCooldown[targetPlayer] = os.clock() + (succeeded and 4.0 or 1.5)
+		rocketCooldown[targetPlayer] = os.clock() + (succeeded and 4.0 or 1.0)
 		restoreNoclip()
 		rocketKillBusy = false
 		return succeeded
@@ -4113,31 +4015,23 @@ hCredits:AddCredit("3qr311", "Scripter")
 		end)
 	end
 
-	-- Event-driven spawn detector: ONLY triggers when a player NEWLY SPAWNS a rocket/bomb in their SpawnedInToys folder!
-	local hookedRocketFolders = setmetatable({}, { __mode = "k" })
-	local function hookPlayerToyFolder(folder)
-		if sc4Unloaded or not folder or hookedRocketFolders[folder] then return end
-		local fname = folder.Name
-		if not string.find(fname, "SpawnedInToys", 1, true) then return end
-		local ownerName = string.sub(fname, 1, #fname - #"SpawnedInToys")
-		if ownerName == "" or ownerName == LocalPlayer.Name then return end
-		hookedRocketFolders[folder] = true
-		sc4Connect(folder.ChildAdded, function(child)
-			if sc4Unloaded or not cfg.antiRocketKill then return end
-			if not child or not isRocketToyName(child.Name) then return end
-			local shooter = Players:FindFirstChild(ownerName)
-			if shooter and shooter ~= LocalPlayer then
-				task.spawn(function()
-					Aurora:Notify("Anti-Rocket", shooter.DisplayName .. " spawned " .. child.Name, 2, "warn")
-					killRocketShooter(shooter)
-				end)
+	task.spawn(function()
+		while not sc4Unloaded do
+			if cfg.antiRocketKill and not rocketKillBusy and not touchKillBusy and not autoFlingBusy then
+				local list = findRocketShooters()
+				local now = os.clock()
+				for _, plr in ipairs(list) do
+					if not cfg.antiRocketKill or sc4Unloaded then break end
+					if (rocketCooldown[plr] or 0) <= now then
+						Aurora:Notify("Anti-Rocket", "Rocket shooter detected: " .. plr.DisplayName, 2, "warn")
+						killRocketShooter(plr)
+						break
+					end
+				end
 			end
-		end)
-	end
-	for _, ch in ipairs(workspace:GetChildren()) do
-		hookPlayerToyFolder(ch)
-	end
-	sc4Connect(workspace.ChildAdded, hookPlayerToyFolder)
+			task.wait(0.25)
+		end
+	end)
 
 	-- ---------------- TURBO STRUGGLE + ANTI-FLING + ANTI-RAGDOLL ----------------
 	sc4Connect(RunService.Heartbeat, function()
