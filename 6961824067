@@ -2814,19 +2814,16 @@ hCredits:AddCredit("3qr311", "Scripter")
 	}
 
 	-- ---------------- GRAB TRACKER + SUPER THROW + SPIN ----------------
-	local grabNoColConstraints = {}
-	local grabNoColPart = nil
-	local function clearGrabNoCol()
-		for _, c in ipairs(grabNoColConstraints) do
+	-- Safe NoCollisionConstraint helper: disables collision ONLY between LocalPlayer.Character and target unanchored part (NEVER touches CanCollide or floor!)
+	local grabNCCs = {}
+	local function clearGrabNCC()
+		for _, c in ipairs(grabNCCs) do
 			if c and c.Parent then pcall(function() c:Destroy() end) end
 		end
-		grabNoColConstraints = {}
-		grabNoColPart = nil
+		grabNCCs = {}
 	end
-	local function applyGrabNoCol(part)
+	local function addNoCollideWithMe(part, duration)
 		if not part or not part:IsDescendantOf(workspace) or part.Anchored then return end
-		if grabNoColPart == part and #grabNoColConstraints > 0 then return end
-		clearGrabNoCol()
 		local myChar = LocalPlayer.Character
 		if not myChar or part:IsDescendantOf(myChar) then return end
 		local myParts = {}
@@ -2834,19 +2831,28 @@ hCredits:AddCredit("3qr311", "Scripter")
 			if d:IsA("BasePart") then table.insert(myParts, d) end
 		end
 		local targetParts = getAssemblyParts(part)
+		local created = {}
 		for _, tp in ipairs(targetParts) do
 			if tp:IsA("BasePart") and not tp.Anchored then
 				for _, mp in ipairs(myParts) do
-					local nc = Instance.new("NoCollisionConstraint")
-					nc.Name = "SC4GrabNoCol"
-					nc.Part0 = mp
-					nc.Part1 = tp
-					nc.Parent = mp
-					table.insert(grabNoColConstraints, nc)
+					local ncc = Instance.new("NoCollisionConstraint")
+					ncc.Name = "SC4NoCol"
+					ncc.Part0 = mp
+					ncc.Part1 = tp
+					ncc.Parent = mp
+					table.insert(created, ncc)
 				end
 			end
 		end
-		grabNoColPart = part
+		if duration then
+			task.delay(duration, function()
+				for _, c in ipairs(created) do
+					if c and c.Parent then pcall(function() c:Destroy() end) end
+				end
+			end)
+		else
+			for _, c in ipairs(created) do table.insert(grabNCCs, c) end
+		end
 	end
 
 	sc4Connect(RunService.Heartbeat, function()
@@ -2858,12 +2864,15 @@ hCredits:AddCredit("3qr311", "Scripter")
 			local part = weld and weld.Part1
 			local myChar = LocalPlayer.Character
 			if part and part:IsA("BasePart") and not part.Anchored and part:IsDescendantOf(workspace) and (not myChar or not part:IsDescendantOf(myChar)) then
-				st.grabbedPart = part
-				st.grabbedClone = clone
-				st.grabbedLastSeen = os.clock()
-				if cfg.superThrow or cfg.spinHold or cfg.grabAnimEnabled then
-					applyGrabNoCol(part)
+				if st.grabbedPart ~= part then
+					clearGrabNCC()
+					st.grabbedPart = part
+					st.grabbedClone = clone
+					if cfg.superThrow or cfg.spinHold or cfg.grabAnimEnabled then
+						addNoCollideWithMe(part)
+					end
 				end
+				st.grabbedLastSeen = os.clock()
 				return
 			end
 		end
@@ -2871,6 +2880,7 @@ hCredits:AddCredit("3qr311", "Scripter")
 			local dropped = st.grabbedPart
 			st.grabbedPart = nil
 			st.grabbedClone = nil
+			clearGrabNCC()
 			if (cfg.spinHold or cfg.grabAnimEnabled) and (os.clock() - (st.lastThrowAt or 0) > 0.4) and dropped:IsDescendantOf(workspace) then
 				for _, p in ipairs(getAssemblyParts(dropped)) do
 					if p:IsA("BasePart") and not p.Anchored then
@@ -2881,9 +2891,6 @@ hCredits:AddCredit("3qr311", "Scripter")
 					end
 				end
 			end
-			task.delay(0.25, function()
-				if not st.grabbedPart then clearGrabNoCol() end
-			end)
 		end
 	end)
 
@@ -2910,6 +2917,7 @@ hCredits:AddCredit("3qr311", "Scripter")
 		local parts = getAssemblyParts(part)
 		local myChar = LocalPlayer.Character
 		if myChar and part:IsDescendantOf(myChar) then return end
+		addNoCollideWithMe(part, 0.35)
 		st.lastThrowAt = os.clock()
 		st.throwToken = st.throwToken + 1
 		local tok = st.throwToken
@@ -3271,14 +3279,14 @@ hCredits:AddCredit("3qr311", "Scripter")
 				spinVec = Vector3.new(20, 30, 20)
 			end
 
-			-- Keep animated object safely above ground & >= 9 studs away from our character
-			if targetPos.Y < hrp.Position.Y + 1.5 then
-				targetPos = Vector3.new(targetPos.X, hrp.Position.Y + 1.5, targetPos.Z)
-			end
+			-- Keep animated object safely between 7 and 16 studs from our character (never hits us & never triggers distance anti-cheat)
 			local fromMe = targetPos - hrp.Position
-			if fromMe.Magnitude < 9 then
-				local pushDir = fromMe.Magnitude > 0.05 and fromMe.Unit or (cam and cam.CFrame.LookVector or hrp.CFrame.LookVector)
-				targetPos = hrp.Position + pushDir * 9
+			local fDist = fromMe.Magnitude
+			local fDir = fDist > 0.05 and fromMe.Unit or (cam and cam.CFrame.LookVector or hrp.CFrame.LookVector)
+			if fDist < 7 then
+				targetPos = hrp.Position + fDir * 7
+			elseif fDist > 16 then
+				targetPos = hrp.Position + fDir * 16
 			end
 			local dragPart = st.grabbedClone and st.grabbedClone:FindFirstChild("DragPart")
 			if dragPart and dragPart:IsA("BasePart") then dragPart.Position = targetPos end
