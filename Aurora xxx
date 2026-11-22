@@ -746,10 +746,9 @@ function Aurora:CreateWindow(titleText, subtitle)
 	-- Sekme simgeleri: emoji/font yok, tamamen Frame ile cizilir ve tema/vurgu rengine uyar.
 	-- Sekme adina gore secilir (adi icinde anahtar kelime gecenler de eslesir).
 	local ICON_KEYS = {
-		{ "grab", "grab" }, { "savaş", "combat" }, { "savas", "combat" }, { "combat", "combat" }, { "oyuncak", "toys" }, { "toy", "toys" },
-		{ "hareket", "movement" }, { "move", "movement" }, { "görsel", "visuals" }, { "gorsel", "visuals" },
 		{ "home", "home" }, { "player", "player" }, { "server", "server" }, { "visual", "visuals" }, { "esp", "esp" },
 		{ "aim", "aimbot" }, { "hit", "hitbox" }, { "setting", "settings" }, { "config", "settings" }, { "teleport", "teleport" },
+		{ "grab", "grab" }, { "combat", "aimbot" }, { "toy", "hitbox" }, { "move", "teleport" },
 	}
 	local function tabIconKind(tabName)
 		local lower = string.lower(tabName or "")
@@ -823,33 +822,16 @@ function Aurora:CreateWindow(titleText, subtitle)
 		elseif kind == "settings" then
 			rect(2, 3, 16, 2, 1, 0, 0.55) rect(2, 9, 16, 2, 1, 0, 0.55) rect(2, 15, 16, 2, 1, 0, 0.55)
 			rect(10, 1, 6, 6, "c") rect(4, 7, 6, 6, "c") rect(11, 13, 6, 6, "c")
-		elseif kind == "grab" then
-			rect(8.4, 11, 3.2, 8, 1.5, 0, 0.55)
-			ring(3.5, 0.5, 13, 13, "c", 1.7)
-			rect(7.5, 4.5, 5, 5, "c")
-			rect(5, 17.5, 10, 2, 1)
-		elseif kind == "combat" then
-			rect(9, -1, 2.4, 22, 1.2, 45)
-			rect(9, -1, 2.4, 22, 1.2, -45, 0.45)
-			rect(2.5, 12.5, 6, 2, 1, 45)
-			rect(11.5, 12.5, 6, 2, 1, -45)
-			ring(7, 7, 6, 6, "c", 1.3, 0.3)
-		elseif kind == "toys" then
-			rect(3, 8, 14, 11, 3, 0, 0.55)
-			ring(3, 8, 14, 11, 3, 1.6)
-			rect(1.5, 4, 17, 4.5, 2)
-			rect(9, 4, 2, 15, 0, 0, 0.2)
-			ring(5.5, 0.5, 4.5, 4.5, "c", 1.4)
-			ring(10, 0.5, 4.5, 4.5, "c", 1.4)
-		elseif kind == "movement" then
-			rect(4, 9, 13, 2.2, 1.1)
-			rect(11.5, 5.5, 8, 2.2, 1.1, 45)
-			rect(11.5, 11.8, 8, 2.2, 1.1, -45)
-			rect(0, 4, 6, 2, 1, 0, 0.5)
-			rect(0, 14, 7, 2, 1, 0, 0.5)
 		elseif kind == "server" then
 			rect(1, 1, 18, 5, 1.5, 0, 0.55) rect(1, 7.5, 18, 5, 1.5, 0, 0.55) rect(1, 14, 18, 5, 1.5, 0, 0.55)
 			rect(15.3, 2.5, 2, 2, "c") rect(15.3, 9, 2, 2, "c") rect(15.3, 15.5, 2, 2, "c")
+		elseif kind == "grab" then
+			ring(2, 2, 16, 16, "c", 1.5, 0.45)
+			rect(7, 7, 6, 6, "c")
+			rect(9, 1, 2, 4, 1)
+			rect(9, 15, 2, 4, 1)
+			rect(1, 9, 4, 2, 1)
+			rect(15, 9, 4, 2, 1)
 		end
 
 		box.Parent = parent
@@ -995,7 +977,13 @@ function Aurora:CreateWindow(titleText, subtitle)
 				local __trLb = label({ Text = T_(t), TextSize = 12, TextColor3 = T.sub, Size = UDim2.new(1, -28, 1, 0), Position = UDim2.fromOffset(14, 0) })
 				__trLb.Parent = r
 				regT(__trLb, t)
-				return { Label = __trLb, Set = function(_, txt) __trLb.Text = tostring(txt) end }
+				return {
+					Set = function(selfOrVal, val)
+						local txt = (val ~= nil) and val or selfOrVal
+						__trLb.Text = tostring(txt or "")
+					end,
+					Label = __trLb,
+				}
 			end
 
 			-- Ozel icerik icin bos, otomatik boyutlanan kap (liste vb.)
@@ -1250,6 +1238,7 @@ function Aurora:CreateWindow(titleText, subtitle)
 				kb.MouseButton1Click:Connect(function()
 					if listening then return end
 					listening = true
+					Aurora._keyListening = true
 					kb.Text = "..."
 					kb.TextColor3 = accent
 				end)
@@ -1259,17 +1248,23 @@ function Aurora:CreateWindow(titleText, subtitle)
 						if i.UserInputType == Enum.UserInputType.Keyboard then
 							if i.KeyCode ~= Enum.KeyCode.Escape and i.KeyCode ~= Enum.KeyCode.Unknown then
 								listening = false
+								Aurora._keyListening = false
+								Aurora._keySkipUntil = os.clock() + 0.35
 								key = { kind = "key", value = i.KeyCode }
 								kb.Text = i.KeyCode.Name
 								kb.TextColor3 = T.sub
 								if cb then cb(key) end
 							else
 								listening = false
+								Aurora._keyListening = false
+								Aurora._keySkipUntil = os.clock() + 0.25
 								kb.Text = getBindName(key)
 								kb.TextColor3 = T.sub
 							end
 						elseif i.UserInputType == Enum.UserInputType.MouseButton2 or i.UserInputType == Enum.UserInputType.MouseButton3 then
 							listening = false
+							Aurora._keyListening = false
+							Aurora._keySkipUntil = os.clock() + 0.35
 							key = { kind = "mouse", value = i.UserInputType }
 							kb.Text = (i.UserInputType == Enum.UserInputType.MouseButton2 and "Mouse 2") or "Mouse 3"
 							kb.TextColor3 = T.sub
@@ -1368,6 +1363,9 @@ function Aurora:CreateWindow(titleText, subtitle)
 				tb.Parent = r
 				local st = tb:FindFirstChildOfClass("UIStroke")
 				tb.Focused:Connect(function() tween(st, 0.2, { Color = accent, Transparency = 0 }) end)
+				tb:GetPropertyChangedSignal("Text"):Connect(function()
+					if cb then task.spawn(cb, tb.Text, false) end
+				end)
 				tb.FocusLost:Connect(function(enter)
 					tween(st, 0.2, { Color = T.line, Transparency = 0.3 })
 					if cb then task.spawn(cb, tb.Text, enter) end
@@ -1647,6 +1645,7 @@ table.insert(conns, RunService.Heartbeat:Connect(function()
 		Lighting.Ambient = enforcedAmbient
 	end
 end))
+
 
 
 ------------------------------------------------------------------ CUSTOM SKY
@@ -2608,1125 +2607,23 @@ local SkyAPI = (function()
 	}
 end)()
 
------------------------------------------------------------------- SAF ESP MODULU ENTEGRASYONU
-local ESP = {
-	Player = false,
-	NPC = false,
-	Box = false,
-	Corners = false,
-	Box3D = false,
-	Fill = false,
-	Highlight = false,
-	Skeleton = false,
-	Tracer = false,
-	Arrows = false,
-	Name = false,
-	Distance = false,
-	Health = false,
-	HealthText = false,
-	HeldItem = false,
-	Inventory = false,
-	InvMax = 4,
-	InvScale = 100,
-	TeamColor = false,
-	VisColor = false,
-	Rainbow = false,
-	TeamCheck = false,
-	VisibleCheck = false,
-	Range = 800,
-	TextSize = 12,
-	Thickness = 3,
-	TracerFrom = 1,
-	Color = Color3.fromRGB(157, 102, 255)
-}
-
-local WHITE, BLACK = Color3.new(1, 1, 1), Color3.new(0, 0, 0)
-local GREEN, RED = Color3.fromRGB(73, 238, 148), Color3.fromRGB(255, 85, 115)
-local R15 = {{'Head', 'UpperTorso'}, {'UpperTorso', 'LowerTorso'}, {'UpperTorso', 'LeftUpperArm'}, {'LeftUpperArm', 'LeftLowerArm'}, {'LeftLowerArm', 'LeftHand'}, {'UpperTorso', 'RightUpperArm'}, {'RightUpperArm', 'RightLowerArm'}, {'RightLowerArm', 'RightHand'}, {'LowerTorso', 'LeftUpperLeg'}, {'LeftUpperLeg', 'LeftLowerLeg'}, {'LeftLowerLeg', 'LeftFoot'}, {'LowerTorso', 'RightUpperLeg'}, {'RightUpperLeg', 'RightLowerLeg'}, {'RightLowerLeg', 'RightFoot'}}
-local R6 = {{'Head', 'Torso'}, {'Torso', 'Left Arm'}, {'Torso', 'Right Arm'}, {'Torso', 'Left Leg'}, {'Torso', 'Right Leg'}}
-
-pcall(function() RunService:UnbindFromRenderStep('KPUD_PURE_ESP_RENDER') end)
-pcall(function() RunService:UnbindFromRenderStep('AimbotUI_Step') end)
-pcall(function() RunService:UnbindFromRenderStep('HitboxUI_Step') end)
-local oldWorld = workspace:FindFirstChild('KPUD_ESP_WORLD')
-if oldWorld then oldWorld:Destroy() end
-local oldOverlay = host:FindFirstChild('KPUD_ESP_GUI')
-if oldOverlay then oldOverlay:Destroy() end
-
-local world = Instance.new('Folder')
-world.Name = 'KPUD_ESP_WORLD'
-world.Parent = workspace
-
-local overlay = Instance.new('ScreenGui')
-overlay.Name = 'KPUD_ESP_GUI'
-overlay.ResetOnSpawn = false
-overlay.IgnoreGuiInset = true
-overlay.DisplayOrder = 50
-overlay.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-overlay.Parent = host
-
-local targets, npcs, pcache = {}, {}, {}
-local slowTimer, VW, VH = 0, 800, 600
-local esp_lp, esp_lq = {0, 0, 0, 0}, {0, 0, 0, 0}
-local rainbow = WHITE
-local vParams = RaycastParams.new()
-vParams.FilterType = Enum.RaycastFilterType.Exclude
-vParams.IgnoreWater = true
-
-local function esp_make(class, props, parent)
-	local o = Instance.new(class)
-	if props then for k, v in pairs(props) do o[k] = v end end
-	if parent then o.Parent = parent end
-	return o
-end
-
-local function finite(v) return type(v) == 'number' and v == v and math.abs(v) < 1e6 end
-local function healthColor(r)
-	return Color3.fromRGB(math.floor(235 * (1 - r) + 70 * r), math.floor(70 * (1 - r) + 225 * r), math.floor(85 * (1 - r) + 130 * r))
-end
-
-local function setLine(f, x1, y1, x2, y2, c, th)
-	if not (finite(x1) and finite(y1) and finite(x2) and finite(y2)) then f.Visible = false return end
-	local dx, dy = x2 - x1, y2 - y1
-	esp_lp[1], esp_lp[2], esp_lp[3], esp_lp[4] = -dx, dx, -dy, dy
-	esp_lq[1], esp_lq[2], esp_lq[3], esp_lq[4] = x1, VW - x1, y1, VH - y1
-	local t0, t1 = 0, 1
-	for i = 1, 4 do
-		if math.abs(esp_lp[i]) < 1e-5 then
-			if esp_lq[i] < 0 then f.Visible = false return end
-		else
-			local t = esp_lq[i] / esp_lp[i]
-			if esp_lp[i] < 0 then if t > t0 then t0 = t end else if t < t1 then t1 = t end end
-			if t0 > t1 then f.Visible = false return end
+local AIM_MOBILE = UIS.TouchEnabled and not UIS.MouseEnabled
+local Aim = { Enabled = false }
+local Hit = { Enabled = false }
+local FovLock = { Value = false, On = false }
+local function matchesKey(input, bind)
+	if not bind then return false end
+	if type(bind) == "table" then
+		if bind.kind == "key" then
+			return input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode == bind.value
+		elseif bind.kind == "mouse" then
+			return input.UserInputType == bind.value
 		end
-	end
-	local ax, ay, bx, by = x1 + dx * t0, y1 + dy * t0, x1 + dx * t1, y1 + dy * t1
-	local len = math.sqrt((bx - ax) ^ 2 + (by - ay) ^ 2)
-	if len < 1 then f.Visible = false return end
-	f.BackgroundColor3 = c; f.Size = UDim2.fromOffset(len, th)
-	f.Position = UDim2.fromOffset((ax + bx) * .5, (ay + by) * .5)
-	f.Rotation = math.deg(math.atan2(by - ay, bx - ax)); f.Visible = true
-end
-
-local function put(f, x, y, sw, sh, c) f.Position = UDim2.fromOffset(x, y); f.Size = UDim2.fromOffset(sw, sh); f.BackgroundColor3 = c end
-local function show(g, v)
-	if g then
-		local l = g.list
-		for i = 1, #l do
-			local o = l[i]
-			if o.Visible ~= v then o.Visible = v end
-		end
-	end
-end
-
-local function newFrame(parent, z, props)
-	props.BorderSizePixel = 0; props.Visible = false; props.ZIndex = z; props.Active = false
-	return esp_make('Frame', props, parent)
-end
-
-local function makeLabel(parent, z)
-	return esp_make('TextLabel', {BackgroundTransparency = 1, BorderSizePixel = 0, Text = '', TextColor3 = WHITE, TextSize = 12, Font = Enum.Font.GothamBold, TextStrokeColor3 = BLACK, TextStrokeTransparency = .15, TextXAlignment = Enum.TextXAlignment.Center, TextYAlignment = Enum.TextYAlignment.Center, TextTruncate = Enum.TextTruncate.AtEnd, Visible = false, ZIndex = z, Active = false}, parent)
-end
-
-local function buildBox(p)
-	local out = newFrame(p, 2, {BackgroundTransparency = 1})
-	esp_make('UIStroke', {Color = BLACK, Thickness = 3.5, Transparency = .2}, out)
-	local mainF = newFrame(p, 3, {BackgroundTransparency = 1, BackgroundColor3 = WHITE})
-	local st = esp_make('UIStroke', {Color = WHITE, Thickness = 1.5}, mainF)
-	return {list = {out, mainF}, out = out, main = mainF, st = st}
-end
-
-local function buildCorners(p)
-	local l = {}
-	for i = 1, 8 do
-		local f = newFrame(p, 4, {BackgroundColor3 = WHITE})
-		esp_make('UIStroke', {Color = BLACK, Thickness = 1, Transparency = .25}, f)
-		l[i] = f
-	end
-	return {list = l}
-end
-
-local function buildHP(p)
-	local track = newFrame(p, 4, {BackgroundColor3 = Color3.fromRGB(14, 16, 24), BackgroundTransparency = .2})
-	esp_make('UIStroke', {Color = BLACK, Thickness = 1, Transparency = .15}, track)
-	local fill = esp_make('Frame', {AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 0, 1, 0), Size = UDim2.fromScale(1, 1), BackgroundColor3 = GREEN, BorderSizePixel = 0, ZIndex = 5, Active = false}, track)
-	return {list = {track}, track = track, fill = fill}
-end
-
-local function buildLabel(p) local t = makeLabel(p, 6); return {list = {t}, label = t} end
-local function buildLine(p) local f = newFrame(p, 2, {AnchorPoint = Vector2.new(.5, .5), BackgroundColor3 = WHITE, BackgroundTransparency = .3, Size = UDim2.fromOffset(1, 1)}); return {list = {f}} end
-
-local function buildSkel(p)
-	local l = {}
-	for i = 1, 14 do l[i] = newFrame(p, 3, {AnchorPoint = Vector2.new(.5, .5), BackgroundColor3 = WHITE, BackgroundTransparency = .1, Size = UDim2.fromOffset(1, 1)}) end
-	return {list = l}
-end
-
-local function buildArrow(p)
-	local t = makeLabel(p, 7); t.Text = '^'; t.TextSize = 22; t.AnchorPoint = Vector2.new(.5, .5); t.Size = UDim2.fromOffset(26, 26)
-	return {list = {t}, label = t}
-end
-
-local INV = {MAXROWS = 10, GRAY = Color3.fromRGB(150, 156, 172)}
-
-function INV.build(p)
-	local card = newFrame(p, 5, {BackgroundColor3 = Color3.fromRGB(12, 14, 22), BackgroundTransparency = .16})
-	esp_make('UICorner', {CornerRadius = UDim.new(0, 6)}, card)
-	local st = esp_make('UIStroke', {Color = WHITE, Thickness = 1, Transparency = .3}, card)
-	local bar = esp_make('Frame', {BackgroundColor3 = WHITE, BorderSizePixel = 0, ZIndex = 6, Active = false, Position = UDim2.fromOffset(3, 4), Size = UDim2.fromOffset(2, 10)}, card)
-	esp_make('UICorner', {CornerRadius = UDim.new(1, 0)}, bar)
-	local tags, names = {}, {}
-	for i = 1, INV.MAXROWS do
-		local tg = makeLabel(card, 7); tg.TextXAlignment = Enum.TextXAlignment.Left; tg.Font = Enum.Font.GothamBlack
-		local nm = makeLabel(card, 7); nm.TextXAlignment = Enum.TextXAlignment.Left; nm.Font = Enum.Font.GothamMedium
-		tags[i], names[i] = tg, nm
-	end
-	return {list = {card}, card = card, st = st, bar = bar, tags = tags, names = names}
-end
-
-function INV.row(g, n, tag, txt, c, ts, ih, tagW, dim)
-	local tg, nm = g.tags[n], g.names[n]
-	local yy = 3 + (n - 1) * ih
-	tg.Position = UDim2.fromOffset(9, yy); tg.Size = UDim2.fromOffset(tagW, ih)
-	tg.TextSize = math.max(7, ts - 3); tg.TextColor3 = c
-	if tg.Text ~= tag then tg.Text = tag end
-	nm.Position = UDim2.fromOffset(9 + tagW, yy); nm.Size = UDim2.new(1, -(13 + tagW), 0, ih)
-	nm.TextSize = ts - 1; nm.TextColor3 = dim and INV.GRAY or WHITE
-	if nm.Text ~= txt then nm.Text = txt end
-	if not tg.Visible then tg.Visible = true end
-	if not nm.Visible then nm.Visible = true end
-end
-
-function INV.scan(model, player)
-	local held, count, order = nil, {}, {}
-	local function sc(c, isChar)
-		if not c then return end
-		for _, t in ipairs(c:GetChildren()) do
-			if t:IsA('Tool') then
-				if isChar and not held then held = t.Name end
-				if not count[t.Name] then count[t.Name] = 0; order[#order + 1] = t.Name end
-				count[t.Name] = count[t.Name] + 1
-			end
-		end
-	end
-	sc(model, true)
-	if player then sc(player:FindFirstChildOfClass('Backpack'), false) end
-	local names = {}
-	for i = 1, math.min(24, #order) do
-		local n = order[i]
-		names[i] = count[n] > 1 and (n .. ' x' .. count[n]) or n
-	end
-	return held, names, #order
-end
-
-function INV.draw(d, g, x, y, ts, far, c)
-	ts = math.max(7, math.floor(ts * ESP.InvScale / 100 + .5))
-	local ih = ts + 3
-	local tagW = math.floor(ts * 3.6)
-	local tr = Lang == 'tr'
-	local n = 0
-	if ESP.HeldItem then
-		n = n + 1
-		local hn = d.heldName
-		INV.row(g, n, tr and 'ELDE' or 'HELD', hn or (tr and 'Bos' or 'Empty'), c, ts, ih, tagW, not hn)
-	end
-	if ESP.Inventory and not far then
-		local names = d.invNames
-		local total = #names
-		local cap = math.min(ESP.InvMax, total)
-		if total == 0 then
-			n = n + 1
-			INV.row(g, n, tr and 'CANTA' or 'BAG', tr and 'Bos' or 'Empty', c, ts, ih, tagW, true)
-		end
-		for i = 1, cap do
-			n = n + 1
-			INV.row(g, n, i == 1 and (tr and 'CANTA' or 'BAG') or '', names[i], c, ts, ih, tagW, false)
-		end
-		if d.invTotal > cap then
-			n = n + 1
-			INV.row(g, n, '', '+' .. (d.invTotal - cap) .. (tr and ' daha' or ' more'), c, ts, ih, tagW, true)
-		end
-	end
-	for i = n + 1, INV.MAXROWS do
-		local tg, nm = g.tags[i], g.names[i]
-		if tg.Visible then tg.Visible = false end
-		if nm.Visible then nm.Visible = false end
-	end
-	if n == 0 then show(g, false) return 0 end
-	local cw = math.clamp(math.floor(ts * 13), 104, 230)
-	g.card.Size = UDim2.fromOffset(cw, n * ih + 6)
-	g.card.Position = UDim2.fromOffset(x - math.floor(cw * .5), y)
-	g.st.Color = c; g.bar.BackgroundColor3 = c
-	g.bar.Size = UDim2.fromOffset(2, n * ih - 2)
-	show(g, true)
-	return n * ih + 8
-end
-
-local function grp(d, key, build)
-	local g = d.g[key]
-	if not g then g = build(d.gui); d.g[key] = g end
-	return g
-end
-
-local function measure(d)
-	local r = d.root
-	local ok, cf, size = pcall(function() return d.model:GetBoundingBox() end)
-	local off, sx, sy, sz = CFrame.new(), 4, 6, 2
-	if ok and cf and size and finite(size.X) and finite(size.Y) and finite(size.Z) then
-		local o = r.CFrame:ToObjectSpace(cf)
-		if o.Position.Magnitude < 8 then
-			off = o; sx = math.clamp(size.X + .2, 2, 7); sy = math.clamp(size.Y + .2, 3, 10); sz = math.clamp(size.Z + .2, 1.5, 7)
-		end
-	end
-	local ns = Vector3.new(sx, sy, sz)
-	if d.boxSize then ns = d.boxSize:Lerp(ns, .35); off = d.boxOff:Lerp(off, .35) end
-	d.boxSize, d.boxOff = ns, off
-	d.carrier.Size = ns
-	local cy = (r.CFrame * off).Position.Y
-	d.up = math.clamp(cy + ns.Y * .5 - r.Position.Y, 1, 8)
-	d.down = math.clamp(r.Position.Y - (cy - ns.Y * .5), 1, 8)
-	d.ratio = math.clamp(ns.X * .8 / ns.Y, .38, .62)
-end
-
-local function buildBones(d)
-	local m = d.model
-	local list = m:FindFirstChild('UpperTorso') and R15 or R6
-	local out = {}
-	for _, pr in ipairs(list) do
-		local a, b = m:FindFirstChild(pr[1]), m:FindFirstChild(pr[2])
-		if a and b and a:IsA('BasePart') and b:IsA('BasePart') then out[#out + 1] = {a, b} end
-	end
-	d.bp = out
-end
-
-local function canSee(d, cam)
-	local o = cam.CFrame.Position
-	local parts = {d.root, d.model:FindFirstChild('Head')}
-	for i = 1, 2 do
-		local p = parts[i]
-		if p and p:IsA('BasePart') then
-			local hit = workspace:Raycast(o, p.Position - o, vParams)
-			if not hit or hit.Instance:IsDescendantOf(d.model) then return true end
-		end
+	elseif typeof(bind) == "EnumItem" then
+		return input.KeyCode == bind or input.UserInputType == bind
 	end
 	return false
 end
-
-local function createESP(model, player)
-	local hm = model:FindFirstChildOfClass('Humanoid')
-	local rt = model:FindFirstChild('HumanoidRootPart') or model.PrimaryPart or model:FindFirstChild('Head')
-	if not hm or not rt or not rt:IsA('BasePart') then return nil end
-	local d = {model = model, player = player, hum = hm, root = rt, g = {}, active = false, visible = true, dist = 0, color = ESP.Color, hp = 1, hpNum = 0, nameText = '', distText = '', invNames = {}, invTotal = 0, mStamp = 0, iStamp = 0, hlOK = true, up = 3, down = 3, ratio = .55}
-	d.gui = esp_make('Frame', {BackgroundTransparency = 1, BorderSizePixel = 0, Size = UDim2.fromScale(1, 1), Active = false, ZIndex = 1}, overlay)
-	d.carrier = esp_make('Part', {Name = 'KPUD_ESP_BOX', Anchored = true, CanCollide = false, CanTouch = false, CanQuery = false, CastShadow = false, Transparency = 1, Size = Vector3.new(4, 6, 2)}, world)
-	d.box3 = esp_make('SelectionBox', {Name = 'KPUD_ESP_3D', Adornee = d.carrier, Color3 = ESP.Color, SurfaceTransparency = 1, LineThickness = .04, Visible = false}, world)
-	d.hl = esp_make('Highlight', {Name = 'KPUD_ESP_HL', Adornee = model, DepthMode = Enum.HighlightDepthMode.AlwaysOnTop, FillTransparency = .86, OutlineTransparency = .1, FillColor = ESP.Color, OutlineColor = ESP.Color, Enabled = false}, world)
-	measure(d); d.mStamp = os.clock()
-	targets[model] = d
-	return d
-end
-
-local function dropESP(model)
-	local d = targets[model]
-	if not d then return end
-	targets[model] = nil
-	pcall(function() d.gui:Destroy(); d.carrier:Destroy(); d.box3:Destroy(); d.hl:Destroy() end)
-end
-
-local function clearAllESP()
-	local l = {}
-	for m in pairs(targets) do l[#l + 1] = m end
-	for _, m in ipairs(l) do dropESP(m) end
-end
-
-local function hideTarget(d)
-	for _, g in pairs(d.g) do show(g, false) end
-	if d.box3.Visible then d.box3.Visible = false end
-	if d.hl.Enabled then d.hl.Enabled = false end
-end
-
-local function addNPC(h)
-	local m = h and h.Parent
-	if m and m:IsA('Model') and m ~= lp.Character and not Players:GetPlayerFromCharacter(m) then npcs[m] = true end
-end
-local function scanNPCs()
-	for _, o in ipairs(workspace:GetDescendants()) do
-		if o:IsA('Humanoid') then addNPC(o) end
-	end
-end
-workspace.DescendantAdded:Connect(function(o) if ESP.NPC and o:IsA('Humanoid') then task.defer(addNPC, o) end end)
-
-local function slowESP()
-	local cam, mine = workspace.CurrentCamera, lp.Character and lp.Character:FindFirstChild('HumanoidRootPart')
-	if not (ESP.Player or ESP.NPC) or not mine or not cam then
-		if next(targets) then clearAllESP() end
-		return
-	end
-	vParams.FilterDescendantsInstances = lp.Character and {lp.Character, world} or {world}
-	local now = os.clock()
-	local seen = {}
-	local needVis = ESP.VisibleCheck or ESP.VisColor
-	local needItems = ESP.HeldItem or ESP.Inventory
-
-	local function consider(model, player)
-		if not model or not model.Parent then return end
-		local d = targets[model]
-		local hm = d and d.hum or model:FindFirstChildOfClass('Humanoid')
-		if not hm or hm.Health <= 0 then return end
-		local rt = d and d.root or model:FindFirstChild('HumanoidRootPart') or model.PrimaryPart or model:FindFirstChild('Head')
-		if not rt or not rt:IsA('BasePart') or not rt.Parent then return end
-		if player and ESP.TeamCheck and lp.Team and player.Team == lp.Team then return end
-		local dist = (rt.Position - mine.Position).Magnitude
-		if dist > (d and ESP.Range * 1.04 or ESP.Range) then return end
-		d = d or createESP(model, player)
-		if not d then return end
-		seen[model] = true
-		d.dist = dist; d.hum = hm; d.player = player
-		d.visible = (not needVis) or canSee(d, cam)
-		d.active = not (ESP.VisibleCheck and not d.visible)
-		local c = ESP.Color
-		if ESP.TeamColor and player and player.Team then c = player.TeamColor.Color end
-		if ESP.VisColor then c = d.visible and GREEN or RED end
-		d.color = c
-		d.hp = math.clamp(hm.Health / math.max(hm.MaxHealth, 1), 0, 1)
-		d.hpNum = math.floor(hm.Health + .5)
-		d.distText = string.format('%d st', math.floor(dist + .5))
-		d.nameText = player and player.DisplayName or model.Name
-		if now - d.mStamp > .4 then d.mStamp = now; measure(d); if ESP.Skeleton then buildBones(d) end end
-		if needItems then
-			if now - d.iStamp > .5 then
-				d.iStamp = now
-				d.heldName, d.invNames, d.invTotal = INV.scan(model, player)
-			end
-		end
-	end
-
-	if ESP.Player then
-		for _, p in ipairs(Players:GetPlayers()) do
-			if p ~= lp and p.Character then consider(p.Character, p) end
-		end
-	end
-	if ESP.NPC then
-		for m in pairs(npcs) do
-			if not m:IsDescendantOf(workspace) or Players:GetPlayerFromCharacter(m) then npcs[m] = nil else consider(m, nil) end
-		end
-	end
-
-	local stale = {}
-	for m in pairs(targets) do if not seen[m] then stale[#stale + 1] = m end end
-	for _, m in ipairs(stale) do dropESP(m) end
-end
-
-local function drawArrow(d, camCF, c)
-	if not ESP.Arrows then show(d.g.arrow, false) return end
-	local rel = camCF:PointToObjectSpace(d.root.Position)
-	local dir = Vector2.new(rel.X, -rel.Y)
-	if dir.Magnitude < .01 then dir = Vector2.new(0, 1) end
-	dir = dir.Unit
-	local g = grp(d, 'arrow', buildArrow)
-	local rad = math.min(VW, VH) * .42
-	g.label.Position = UDim2.fromOffset(VW * .5 + dir.X * rad, VH * .5 + dir.Y * rad)
-	g.label.Rotation = math.deg(math.atan2(dir.X, -dir.Y))
-	g.label.TextColor3 = c
-	show(g, true)
-end
-
-local function drawESP(d, cam, camCF)
-	local r = d.root
-	if not d.active or not r.Parent then hideTarget(d) return end
-	local c = ESP.Rainbow and rainbow or d.color
-	if ESP.Box3D then
-		d.carrier.CFrame = r.CFrame * d.boxOff
-		d.box3.Color3 = c; d.box3.LineThickness = .012 * ESP.Thickness + .015
-		if not d.box3.Visible then d.box3.Visible = true end
-	elseif d.box3.Visible then
-		d.box3.Visible = false
-	end
-
-	local hlOn = ESP.Highlight and d.hlOK
-	if d.hl.Enabled ~= hlOn then d.hl.Enabled = hlOn end
-	if hlOn then d.hl.FillColor = c; d.hl.OutlineColor = c end
-
-	local pos = r.Position
-	local top = cam:WorldToViewportPoint(pos + Vector3.new(0, d.up, 0))
-	local bot = cam:WorldToViewportPoint(pos - Vector3.new(0, d.down, 0))
-	local front = top.Z > .2 and bot.Z > .2 and finite(top.X) and finite(top.Y) and finite(bot.X) and finite(bot.Y)
-	local mx, y1, y2, x1, x2, w, h
-	local onScr = false
-
-	if front then
-		mx = (top.X + bot.X) * .5
-		y1 = math.min(top.Y, bot.Y); y2 = math.max(top.Y, bot.Y)
-		h = y2 - y1; w = h * d.ratio; x1 = mx - w * .5; x2 = mx + w * .5
-		onScr = h >= 2 and h < VH * 5 and x2 > -30 and x1 < VW + 30 and y2 > -30 and y1 < VH + 30
-	end
-
-	if ESP.Tracer and front then
-		local g = grp(d, 'tracer', buildLine)
-		local oy = (ESP.TracerFrom == 1 and VH) or (ESP.TracerFrom == 2 and VH * .5) or 0
-		setLine(g.list[1], VW * .5, oy, mx, y2, c, 1.5)
-	else
-		show(d.g.tracer, false)
-	end
-
-	if not onScr then
-		for k, g in pairs(d.g) do if k ~= 'arrow' and k ~= 'tracer' then show(g, false) end end
-		drawArrow(d, camCF, c)
-		return
-	end
-
-	show(d.g.arrow, false)
-	x1, y1, x2, y2 = math.floor(x1 + .5), math.floor(y1 + .5), math.floor(x2 + .5), math.floor(y2 + .5)
-	mx = math.floor(mx + .5); w = x2 - x1; h = y2 - y1
-	local far = h < 30 or d.dist > 300
-	local ts = ESP.TextSize
-	if far then ts = math.max(8, ts - 2) end
-
-	if ESP.Box then
-		local g = grp(d, 'box', buildBox)
-		local th = math.max(1, ESP.Thickness * .5)
-		g.out.Position = UDim2.fromOffset(x1, y1); g.out.Size = UDim2.fromOffset(w, h)
-		g.main.Position = UDim2.fromOffset(x1, y1); g.main.Size = UDim2.fromOffset(w, h)
-		g.st.Color = c; g.st.Thickness = th
-		g.main.BackgroundColor3 = c; g.main.BackgroundTransparency = ESP.Fill and .87 or 1
-		show(g, true)
-	else
-		show(d.g.box, false)
-	end
-
-	if ESP.Corners then
-		local g = grp(d, 'corners', buildCorners)
-		local l = g.list
-		local lx = math.clamp(math.floor(w * .28), 4, 24)
-		local ly = math.clamp(math.floor(h * .2), 4, 24)
-		local t = math.max(2, math.floor(ESP.Thickness * .7))
-		put(l[1], x1, y1, lx, t, c); put(l[2], x1, y1, t, ly, c)
-		put(l[3], x2 - lx, y1, lx, t, c); put(l[4], x2 - t, y1, t, ly, c)
-		put(l[5], x1, y2 - t, lx, t, c); put(l[6], x1, y2 - ly, t, ly, c)
-		put(l[7], x2 - lx, y2 - t, lx, t, c); put(l[8], x2 - t, y2 - ly, t, ly, c)
-		show(g, true)
-	else
-		show(d.g.corners, false)
-	end
-
-	if ESP.Health and not far and h >= 26 then
-		local g = grp(d, 'hp', buildHP)
-		g.track.Position = UDim2.fromOffset(x1 - 7, y1); g.track.Size = UDim2.fromOffset(3, h)
-		g.fill.Size = UDim2.fromScale(1, d.hp); g.fill.BackgroundColor3 = healthColor(d.hp)
-		show(g, true)
-	else
-		show(d.g.hp, false)
-	end
-
-	if ESP.Name then
-		local g = grp(d, 'name', buildLabel)
-		local t = g.label
-		t.Size = UDim2.fromOffset(240, ts + 4); t.Position = UDim2.fromOffset(mx - 120, y1 - ts - 6); t.TextSize = ts
-		if t.Text ~= d.nameText then t.Text = d.nameText end
-		show(g, true)
-	else
-		show(d.g.name, false)
-	end
-
-	local by = y2 + 2
-	if ESP.Distance then
-		local g = grp(d, 'dist', buildLabel)
-		local t = g.label
-		t.Size = UDim2.fromOffset(160, ts + 2); t.Position = UDim2.fromOffset(mx - 80, by); t.TextSize = ts - 1; t.TextColor3 = c
-		if t.Text ~= d.distText then t.Text = d.distText end
-		show(g, true); by = by + ts + 1
-	else
-		show(d.g.dist, false)
-	end
-
-	if (ESP.HeldItem or ESP.Inventory) and h >= 20 then
-		local g = grp(d, 'inv', INV.build)
-		INV.draw(d, g, mx, by + 2, ts, far, c)
-	else
-		show(d.g.inv, false)
-	end
-
-	if ESP.Skeleton and d.dist <= 350 and h >= 34 and d.bp then
-		local g = grp(d, 'skel', buildSkel)
-		table.clear(pcache)
-		for i = 1, #g.list do
-			local ln, pr = g.list[i], d.bp[i]
-			if pr and pr[1].Parent and pr[2].Parent then
-				local pa = pcache[pr[1]]
-				if not pa then pa = cam:WorldToViewportPoint(pr[1].Position); pcache[pr[1]] = pa end
-				local pb = pcache[pr[2]]
-				if not pb then pb = cam:WorldToViewportPoint(pr[2].Position); pcache[pr[2]] = pb end
-				if pa.Z > .2 and pb.Z > .2 then setLine(ln, pa.X, pa.Y, pb.X, pb.Y, c, 1.5) else ln.Visible = false end
-			else
-				ln.Visible = false
-			end
-		end
-	else
-		show(d.g.skel, false)
-	end
-end
-
-RunService:BindToRenderStep('KPUD_PURE_ESP_RENDER', Enum.RenderPriority.Camera.Value + 20, function(dt)
-	slowTimer = slowTimer + dt
-	if slowTimer >= .12 then
-		slowTimer = 0
-		pcall(slowESP)
-	end
-	local cam = workspace.CurrentCamera
-	if not cam then return end
-	local vp = cam.ViewportSize
-	VW, VH = vp.X, vp.Y
-	rainbow = Color3.fromHSV((os.clock() * .25) % 1, .85, 1)
-	local camCF = cam.CFrame
-	for _, d in pairs(targets) do
-		pcall(drawESP, d, cam, camCF)
-	end
-end)
-
------------------------------------------------------------------- AIMBOT ENTEGRASYONU
-local AIM_MOBILE = UIS.TouchEnabled and not UIS.MouseEnabled -- saf dokunmatik cihaz (telefon/tablet)
-local AimButton = {}
-local Aim = {
-	Enabled = false,
-	Mode = AIM_MOBILE and "Toggle" or "Hold", -- mobilde dokun-ac/kapat, PC'de basili tut
-	Key = { kind = "mouse", value = Enum.UserInputType.MouseButton2 },
-	Part = "Head",
-	Priority = "Closest to cursor",
-	Smooth = 0,
-	YOffset = 0,
-	Prediction = false,
-	PredStrength = 0.1,
-	FOV = 150,
-	ShowFOV = AIM_MOBILE, -- mobilde FOV dairesi ekran ortasinda gorunsun
-	ShowButton = true,
-	ButtonSize = AIM_MOBILE and 72 or 58,
-	FOVColor = Color3.fromRGB(139, 108, 255),
-	FOVRainbow = false,
-	MaxDistance = 1000,
-	TeamCheck = false,
-	WallCheck = false,
-	Sticky = true,
-	Players = true,
-	NPC = false,
-}
-
-local holding, latched, aimTarget = false, false, false
-local btnHold = false -- ekrandaki aim butonu basili mi
-local fovCircle = new("Frame", {
-	Name = "AimFOV", AnchorPoint = Vector2.new(0.5, 0.5), BackgroundTransparency = 1, BorderSizePixel = 0,
-	Size = UDim2.fromOffset(300, 300), Visible = false, ZIndex = 5,
-}, { new("UICorner", { CornerRadius = UDim.new(0.5, 0) }), stroke(Color3.fromRGB(139, 108, 255), 1.5, 0.15) })
-local fovStroke = fovCircle:FindFirstChildOfClass("UIStroke")
--- rainbow FOV: daire cercevesi donen gokkusagi gradyani ile boyanir (basi ve sonu ayni renk, dikissiz)
-local fovGrad = new("UIGradient", { Enabled = false, Color = ColorSequence.new({
-	ColorSequenceKeypoint.new(0, Color3.fromHSV(0, 0.8, 1)), ColorSequenceKeypoint.new(0.17, Color3.fromHSV(0.17, 0.8, 1)),
-	ColorSequenceKeypoint.new(0.33, Color3.fromHSV(0.33, 0.8, 1)), ColorSequenceKeypoint.new(0.5, Color3.fromHSV(0.5, 0.8, 1)),
-	ColorSequenceKeypoint.new(0.67, Color3.fromHSV(0.67, 0.8, 1)), ColorSequenceKeypoint.new(0.83, Color3.fromHSV(0.83, 0.8, 1)),
-	ColorSequenceKeypoint.new(1, Color3.fromHSV(1, 0.8, 1)),
-}) })
-fovGrad.Parent = fovStroke
-onAccent(function(a) if not Aim.FOVColor or Aim.FOVColor == Color3.fromRGB(139, 108, 255) then fovStroke.Color = a end end)
-fovCircle.Parent = gui
-
-local aimRayParams = RaycastParams.new()
-aimRayParams.FilterType = Enum.RaycastFilterType.Exclude
-aimRayParams.IgnoreWater = true
-
-local CLOSEST_PARTS = { "Head", "UpperTorso", "Torso", "LowerTorso", "HumanoidRootPart" }
-
-local function matchesKey(input, b)
-	if not b then return false end
-	if type(b) == "table" then
-		if b.kind == "mouse" then return input.UserInputType == b.value end
-		if b.kind == "key" then return input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode == b.value end
-	elseif typeof(b) == "EnumItem" then
-		return input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode == b
-	end
-	return false
-end
-
-local function isAiming()
-	if not Aim.Enabled then return false end
-	if Aim.Mode == "Always" then return true end
-	if Aim.Mode == "Toggle" then return latched end
-	return holding or btnHold
-end
-
-local function getCursor(cam)
-	if UIS.TouchEnabled and not UIS.MouseEnabled then return cam.ViewportSize / 2 end
-	return UIS:GetMouseLocation()
-end
-
-local function isVisibleAim(part, char, camPos)
-	aimRayParams.FilterDescendantsInstances = lp.Character and { lp.Character } or {}
-	local res = workspace:Raycast(camPos, part.Position - camPos, aimRayParams)
-	return res == nil or res.Instance:IsDescendantOf(char)
-end
-
-local function pickAimPart(char, cursor, cam)
-	if Aim.Part == "Head" then
-		return char:FindFirstChild("Head")
-	elseif Aim.Part == "Chest" then
-		return char:FindFirstChild("UpperTorso") or char:FindFirstChild("Torso") or char:FindFirstChild("HumanoidRootPart")
-	elseif Aim.Part == "Root" then
-		return char:FindFirstChild("HumanoidRootPart")
-	end
-	local best, bestD
-	for _, n in ipairs(CLOSEST_PARTS) do
-		local p = char:FindFirstChild(n)
-		if p and p:IsA("BasePart") then
-			local v, on = cam:WorldToViewportPoint(p.Position)
-			if on then
-				local d = (Vector2.new(v.X, v.Y) - cursor).Magnitude
-				if not bestD or d < bestD then best, bestD = p, d end
-			end
-		end
-	end
-	return best
-end
-
--- NPC hedef listesi: sadece "NPCs" acikken doldurulur (workspace'teki oyuncu olmayan Humanoid modelleri)
-local aimNpcs = {}
-local function addAimNpc(h)
-	local m = h and h.Parent
-	if m and m:IsA("Model") and m ~= lp.Character and not Players:GetPlayerFromCharacter(m) then aimNpcs[m] = true end
-end
-local function scanAimNpcs()
-	task.spawn(function()
-		local all = workspace:GetDescendants()
-		for i = 1, #all do
-			if all[i]:IsA("Humanoid") then addAimNpc(all[i]) end
-			if i % 800 == 0 then task.wait() end
-		end
-	end)
-end
-workspace.DescendantAdded:Connect(function(o)
-	if Aim.NPC and o:IsA("Humanoid") then task.defer(addAimNpc, o) end
-end)
-
--- char: oyuncu karakteri ya da NPC modeli
-local function evaluateAim(char, cam, camPos, cursor, ignoreFov)
-	if not char or not char.Parent then return nil end
-	local plr = Players:GetPlayerFromCharacter(char)
-	local hum = char:FindFirstChildOfClass("Humanoid")
-	if not hum or hum.Health <= 0 then return nil end
-	if plr and Aim.TeamCheck and plr.Team ~= nil and plr.Team == lp.Team then return nil end
-	local part = pickAimPart(char, cursor, cam)
-	if not part or not part:IsA("BasePart") then return nil end
-	local dist = (part.Position - camPos).Magnitude
-	if dist > Aim.MaxDistance then return nil end
-	local point = part.Position + Vector3.new(0, Aim.YOffset, 0)
-	if Aim.Prediction then
-		point = point + part.AssemblyLinearVelocity * Aim.PredStrength
-	end
-	local v, on = cam:WorldToViewportPoint(point)
-	if not on then return nil end
-	local sd = (Vector2.new(v.X, v.Y) - cursor).Magnitude
-	if not ignoreFov and sd > Aim.FOV then return nil end
-	if Aim.WallCheck and not isVisibleAim(part, char, camPos) then return nil end
-	return point, sd, dist, hum
-end
-
-RunService:BindToRenderStep("AimbotUI_Step", Enum.RenderPriority.Camera.Value + 1, function(dt)
-	local cam = workspace.CurrentCamera
-	if not cam then return end
-	local cursor = getCursor(cam)
-
-	local showFov = Aim.Enabled and Aim.ShowFOV
-	fovCircle.Visible = showFov
-	if showFov then
-		fovCircle.Position = UDim2.fromOffset(cursor.X, cursor.Y)
-		fovCircle.Size = UDim2.fromOffset(Aim.FOV * 2, Aim.FOV * 2)
-		if Aim.FOVRainbow then
-			if not fovGrad.Enabled then fovGrad.Enabled = true end
-			fovStroke.Color = Color3.new(1, 1, 1)
-			fovGrad.Rotation = (os.clock() * 120) % 360
-		else
-			if fovGrad.Enabled then fovGrad.Enabled = false end
-			fovStroke.Color = Aim.FOVColor
-		end
-	end
-
-	local aiming = isAiming()
-	local point
-	if aiming then
-		local camPos = cam.CFrame.Position
-		if aimTarget and Aim.Sticky then
-			local isPlr = Players:GetPlayerFromCharacter(aimTarget) ~= nil
-			if (isPlr and Aim.Players) or (not isPlr and Aim.NPC) then
-				point = evaluateAim(aimTarget, cam, camPos, cursor, true)
-			end
-		end
-		if not point then
-			aimTarget = nil
-			local bestScore
-			local function consider(ch)
-				local p, sd, d, hum = evaluateAim(ch, cam, camPos, cursor, false)
-				if p then
-					local score = sd
-					if Aim.Priority == "Closest distance" then
-						score = d
-					elseif Aim.Priority == "Lowest health" then
-						score = hum.Health
-					end
-					if not bestScore or score < bestScore then
-						bestScore, point, aimTarget = score, p, ch
-					end
-				end
-			end
-			if Aim.Players then
-				for _, plr in ipairs(Players:GetPlayers()) do
-					if plr ~= lp and plr.Character then consider(plr.Character) end
-				end
-			end
-			if Aim.NPC then
-				for m in pairs(aimNpcs) do
-					if not m.Parent or not m:IsDescendantOf(workspace) or Players:GetPlayerFromCharacter(m) then
-						aimNpcs[m] = nil
-					else
-						consider(m)
-					end
-				end
-			end
-		end
-		if point then
-			local goal = CFrame.lookAt(camPos, point)
-			if Aim.Smooth <= 0 then
-				cam.CFrame = goal
-			else
-				local k = 1 + 39 * (1 - Aim.Smooth / 100) ^ 2
-				cam.CFrame = cam.CFrame:Lerp(goal, 1 - math.exp(-dt * k))
-			end
-		end
-	else
-		aimTarget = nil
-	end
-end)
-
-table.insert(conns, UIS.InputBegan:Connect(function(input, gp)
-	if gp then return end
-	if matchesKey(input, Aim.Key) then
-		holding = true
-		if Aim.Mode == "Toggle" then latched = not latched end
-	end
-end))
-table.insert(conns, UIS.InputEnded:Connect(function(input)
-	if matchesKey(input, Aim.Key) then holding = false end
-end))
-
------------------------------------------------------------------- AIM BUTONU (surukle + bas)
--- SADECE MOBILDE (saf dokunmatik cihaz) olusur, PC'de hic cikmaz.
--- Aimbot acikken ekranda belirir. Surukleyerek tasinir.
--- Toggle modu: dokun = ac/kapat | Hold modu: basili tut = nisan al | Always: sadece gosterge
-if AIM_MOBILE then
-	local aimBtn = new("TextButton", {
-		Name = "AimButton", Text = "", AutoButtonColor = false, AnchorPoint = Vector2.new(0.5, 0.5),
-		Size = UDim2.fromOffset(Aim.ButtonSize, Aim.ButtonSize), BackgroundColor3 = T.card, BorderSizePixel = 0,
-		Visible = false, ZIndex = 40,
-	}, { new("UICorner", { CornerRadius = UDim.new(0.5, 0) }) })
-	local btnScale = new("UIScale", { Scale = 1 })
-	btnScale.Parent = aimBtn
-	local ring = stroke(accent, 2, 0.1)
-	onAccent(function(a) ring.Color = a end)
-	ring.Parent = aimBtn
-
-	local fillF = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(1, 1, 1), BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 41 }, { new("UICorner", { CornerRadius = UDim.new(0.5, 0) }) })
-	accentGrad(fillF, 45)
-	fillF.Parent = aimBtn
-
-	local mainL = new("TextLabel", {
-		Text = "AIM", Font = Enum.Font.GothamBlack, TextScaled = true, BackgroundTransparency = 1, TextColor3 = T.text,
-		Size = UDim2.fromScale(0.8, 0.34), Position = UDim2.fromScale(0.1, 0.2), ZIndex = 42,
-	}, { new("UITextSizeConstraint", { MaxTextSize = 17, MinTextSize = 8 }) })
-	mainL.Parent = aimBtn
-	local subL = new("TextLabel", {
-		Text = "OFF", Font = Enum.Font.GothamBold, TextScaled = true, BackgroundTransparency = 1, TextColor3 = T.sub,
-		Size = UDim2.fromScale(0.7, 0.2), Position = UDim2.fromScale(0.15, 0.56), ZIndex = 42,
-	}, { new("UITextSizeConstraint", { MaxTextSize = 11, MinTextSize = 6 }) })
-	subL.Parent = aimBtn
-	aimBtn.Parent = gui
-
-	local function viewport()
-		local cam = workspace.CurrentCamera
-		return cam and cam.ViewportSize or Vector2.new(1280, 720)
-	end
-
-	function AimButton.Reset()
-		local vp = viewport()
-		aimBtn.Position = UDim2.fromOffset(vp.X - 70, vp.Y * 0.6)
-	end
-	AimButton.Reset()
-
-	local function clampPos(x, y)
-		local vp = viewport()
-		local half = Aim.ButtonSize / 2
-		return math.clamp(x, half, math.max(half, vp.X - half)), math.clamp(y, half, math.max(half, vp.Y - half))
-	end
-
-	-- bas / surukle
-	local pressed, dragged = false, false
-	local startIn, startPos, moveInput = nil, Vector2.new(0, 0), nil
-	local DRAG_THRESHOLD = 10
-
-	aimBtn.InputBegan:Connect(function(i)
-		if i.UserInputType ~= Enum.UserInputType.MouseButton1 and i.UserInputType ~= Enum.UserInputType.Touch then return end
-		pressed, dragged = true, false
-		startIn = i.Position
-		moveInput = i
-		startPos = Vector2.new(aimBtn.Position.X.Offset, aimBtn.Position.Y.Offset)
-		tween(btnScale, 0.1, { Scale = 0.92 })
-		-- Hold modu: kisa bir beklemeden sonra basili say (surukleme baslarsa iptal)
-		task.delay(0.08, function()
-			if pressed and not dragged and Aim.Mode == "Hold" then btnHold = true end
-		end)
-		i.Changed:Connect(function()
-			if i.UserInputState == Enum.UserInputState.End and pressed then
-				pressed = false
-				tween(btnScale, 0.15, { Scale = 1 })
-				if Aim.Mode == "Hold" then
-					btnHold = false
-				elseif Aim.Mode == "Toggle" and not dragged then
-					latched = not latched
-				end
-			end
-		end)
-	end)
-	aimBtn.InputChanged:Connect(function(i)
-		if i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch then
-			if not pressed then moveInput = i end
-		end
-	end)
-	table.insert(conns, UIS.InputChanged:Connect(function(i)
-		if not pressed or i ~= moveInput then return end
-		if i.UserInputType ~= Enum.UserInputType.MouseMovement and i.UserInputType ~= Enum.UserInputType.Touch then return end
-		local d = i.Position - startIn
-		if not dragged and d.Magnitude >= DRAG_THRESHOLD then
-			dragged = true
-			btnHold = false
-		end
-		if dragged then
-			local x, y = clampPos(startPos.X + d.X, startPos.Y + d.Y)
-			aimBtn.Position = UDim2.fromOffset(x, y)
-		end
-	end))
-
-	-- gorunum: aimbot acikken goster, duruma gore renk/yazi
-	local wasShown, lastKey = false, ""
-	table.insert(conns, RunService.Heartbeat:Connect(function()
-		local show = Aim.Enabled and Aim.ShowButton
-		if not Aim.Enabled then
-			latched, btnHold = false, false
-		end
-		if show ~= wasShown then
-			wasShown = show
-			aimBtn.Visible = show
-			if show then
-				btnScale.Scale = 0
-				tween(btnScale, 0.4, { Scale = 1 }, Enum.EasingStyle.Back)
-			end
-		end
-		if not show then return end
-		local size = Aim.ButtonSize
-		if aimBtn.Size.X.Offset ~= size then
-			aimBtn.Size = UDim2.fromOffset(size, size)
-		end
-		local active = isAiming()
-		local key = tostring(active) .. Aim.Mode
-		if key ~= lastKey then
-			lastKey = key
-			tween(fillF, 0.2, { BackgroundTransparency = active and 0 or 1 })
-			mainL.TextColor3 = active and Color3.new(1, 1, 1) or T.text
-			subL.TextColor3 = active and Color3.new(1, 1, 1) or T.sub
-			if Aim.Mode == "Always" then
-				subL.Text = "ON"
-			elseif Aim.Mode == "Toggle" then
-				subL.Text = active and "ON" or "OFF"
-			else
-				subL.Text = active and "ON" or "HOLD"
-			end
-		end
-	end))
-end
-
------------------------------------------------------------------- HITBOX ENTEGRASYONU
-local Hit = {
-	Enabled = false,
-	Groups = { Head = false, Torso = false, Root = false, Arms = false, Legs = false },
-	Uniform = true,
-	Scale = 2,
-	SX = 2, SY = 2, SZ = 2,
-	ShowBox = false,
-	Transparency = 0.5,
-	Color = Color3.fromRGB(255, 60, 60),
-	Neon = false,
-	NoCollide = false,
-	TeamCheck = false,
-	MaxDistance = 2000,
-}
-
-local PART_GROUPS = {
-	Head = { "Head" },
-	Torso = { "UpperTorso", "LowerTorso", "Torso" },
-	Root = { "HumanoidRootPart" },
-	Arms = { "LeftUpperArm", "LeftLowerArm", "LeftHand", "RightUpperArm", "RightLowerArm", "RightHand", "Left Arm", "Right Arm" },
-	Legs = { "LeftUpperLeg", "LeftLowerLeg", "LeftFoot", "RightUpperLeg", "RightLowerLeg", "RightFoot", "Left Leg", "Right Leg" },
-}
-local GROUP_ORDER = { "Head", "Torso", "Root", "Arms", "Legs" }
-local records = {}
-
-local function getScale()
-	if Hit.Uniform then return Hit.Scale, Hit.Scale, Hit.Scale end
-	return Hit.SX, Hit.SY, Hit.SZ
-end
-
-local function restorePart(part, o)
-	if not part or not part.Parent then return end
-	pcall(function()
-		part.Size = o.Size
-		part.Transparency = o.Transparency
-		part.Color = o.Color
-		part.Material = o.Material
-		part.CanCollide = o.CanCollide
-		if o.Massless ~= nil then part.Massless = o.Massless end
-		if o.CanQuery ~= nil then part.CanQuery = o.CanQuery end
-		if o.Motor and o.Motor.Parent then o.Motor.C1 = o.C1 end
-	end)
-end
-
-local function restoreAll(rec)
-	for part, o in pairs(rec.parts) do restorePart(part, o) end
-	rec.parts = {}
-end
-
-local function applyPart(rec, part, sx, sy, sz)
-	local o = rec.parts[part]
-	if not o then
-		o = { Size = part.Size, Transparency = part.Transparency, Color = part.Color, Material = part.Material, CanCollide = part.CanCollide, Massless = part.Massless, CanQuery = part.CanQuery }
-		-- eklem (Motor6D) sabit kaldigi icin buyuyen kafa govdeye gomuluyordu: eklemi buyume kadar kaydir
-		for _, m in ipairs(rec.char:GetDescendants()) do
-			if m:IsA("Motor6D") and m.Part1 == part then
-				o.Motor, o.C1 = m, m.C1
-				break
-			end
-		end
-		rec.parts[part] = o
-	end
-	local want = Vector3.new(o.Size.X * sx, o.Size.Y * sy, o.Size.Z * sz)
-	if (part.Size - want).Magnitude > 0.01 then part.Size = want end
-	if o.Motor and o.Motor.Parent and part.Name == "Head" then
-		local c1 = o.C1 * CFrame.new(0, -(want.Y - o.Size.Y) / 2, 0)
-		if o.Motor.C1 ~= c1 then o.Motor.C1 = c1 end
-	end
-	pcall(function() part.Massless = true end)
-	part.CanQuery = true
-	part.CanTouch = true
-
-	local tr, col, mat = o.Transparency, o.Color, o.Material
-	if Hit.ShowBox then
-		tr, col = Hit.Transparency, Hit.Color
-		if Hit.Neon then mat = Enum.Material.Neon end
-	end
-	if part.Transparency ~= tr then part.Transparency = tr end
-	if part.Color ~= col then part.Color = col end
-	if part.Material ~= mat then part.Material = mat end
-
-	local cc = o.CanCollide
-	if Hit.NoCollide then cc = false end
-	if part.CanCollide ~= cc then part.CanCollide = cc end
-end
-
-local hitAcc = 0
-table.insert(conns, RunService.Heartbeat:Connect(function(dt)
-	hitAcc = hitAcc + dt
-	if hitAcc < 0.1 then return end
-	hitAcc = 0
-	local cam = workspace.CurrentCamera
-	local camPos = cam and cam.CFrame.Position
-	local sx, sy, sz = getScale()
-
-	for _, plr in ipairs(Players:GetPlayers()) do
-		if plr ~= lp then
-			local char = plr.Character
-			local rec = records[plr]
-			if rec and rec.char ~= char then
-				rec = nil
-				records[plr] = nil
-			end
-
-			local eligible = false
-			if Hit.Enabled and char then
-				local hum = char:FindFirstChildOfClass("Humanoid")
-				local root = char:FindFirstChild("HumanoidRootPart")
-				if hum and hum.Health > 0 and root then
-					eligible = true
-					if Hit.TeamCheck and plr.Team ~= nil and plr.Team == lp.Team then eligible = false end
-					if eligible and camPos and (root.Position - camPos).Magnitude > Hit.MaxDistance then eligible = false end
-				end
-			end
-
-			if eligible then
-				if not rec then
-					rec = { char = char, parts = {} }
-					records[plr] = rec
-				end
-				local desired = {}
-				for _, gname in ipairs(GROUP_ORDER) do
-					if Hit.Groups[gname] then
-						for _, pname in ipairs(PART_GROUPS[gname]) do
-							local part = char:FindFirstChild(pname)
-							if part and part:IsA("BasePart") then desired[part] = true end
-						end
-					end
-				end
-				for part, o in pairs(rec.parts) do
-					if not desired[part] then
-						restorePart(part, o)
-						rec.parts[part] = nil
-					end
-				end
-				for part in pairs(desired) do
-					applyPart(rec, part, sx, sy, sz)
-				end
-			elseif rec then
-				restoreAll(rec)
-				records[plr] = nil
-			end
-		end
-	end
-end))
-
-pcall(function() RunService:UnbindFromRenderStep("HitboxUI_Step") end)
-RunService:BindToRenderStep("HitboxUI_Step", Enum.RenderPriority.Last.Value, function()
-	if not Hit.Enabled then return end
-	local sx, sy, sz = getScale()
-	for _, rec in pairs(records) do
-		for part, o in pairs(rec.parts) do
-			pcall(function()
-				local want = Vector3.new(o.Size.X * sx, o.Size.Y * sy, o.Size.Z * sz)
-				if (part.Size - want).Magnitude > 0.01 then part.Size = want end
-				if part.Anchored then part.Anchored = false end
-				if not part.CanQuery then part.CanQuery = true end
-			end)
-		end
-	end
-end)
-
------------------------------------------------------------------- SEKMELER VE MENU KURULUMU
-gui.Destroying:Connect(function()
-	Aim.Enabled = false
-	Hit.Enabled = false
-	ESP.Player = false
-	ESP.NPC = false
-	pcall(function() RunService:UnbindFromRenderStep('KPUD_PURE_ESP_RENDER') end)
-	pcall(function() RunService:UnbindFromRenderStep('AimbotUI_Step') end)
-	pcall(function() RunService:UnbindFromRenderStep('HitboxUI_Step') end)
-	pcall(function() RunService:UnbindFromRenderStep('AuroraFovLock') end)
-	pcall(clearAllESP)
-	pcall(SkyAPI.Reset)
-	pcall(function() world:Destroy() end)
-	pcall(function() overlay:Destroy() end)
-	for plr, rec in pairs(records) do pcall(restoreAll, rec) end
-end)
 
 local Window = Aurora:CreateWindow("Aurora X", "v2.0 - Premium Edition")
 
@@ -3741,7 +2638,7 @@ hCredits:AddCredit("3qr311", "Scripter")
 
 
 -- ============================================================
--- SC4 (FLING THINGS AND PEOPLE) MODÜLÜ — AURORA X ENTEGRASYONU
+-- SC4 MODULE (FLING THINGS AND PEOPLE) — AURORA X EDITION
 -- ============================================================
 ;(function()
 	local Players = game:GetService("Players")
@@ -3772,6 +2669,8 @@ hCredits:AddCredit("3qr311", "Scripter")
 		DestroyToy = { "MenuToys", "DestroyToy" },
 		SlotTime = { "SlotEvents", "SlotTime" },
 		HoldUse = { "HoldEvents", "Use" },
+		EndGrabEarly = { "GrabEvents", "EndGrabEarly" },
+		GameCorrectionsNotify = { "GameCorrectionEvents", "GameCorrectionsNotify" },
 	}
 	local remoteCache = {}
 	local function resolveRemote(name)
@@ -3835,11 +2734,11 @@ hCredits:AddCredit("3qr311", "Scripter")
 	end
 
 	local cfg = {
-		superThrow = true,
+		superThrow = false,
 		throwMultiplier = 8,
 		throwMaxSpeed = 1800,
 		throwUpBoost = 150,
-		throwDirection = "Kamera",
+		throwDirection = "Camera",
 		spinHold = false,
 		spinOnThrow = false,
 		spinSpeed = 600,
@@ -3849,7 +2748,7 @@ hCredits:AddCredit("3qr311", "Scripter")
 		serverRainbow = false,
 
 		grabAnimEnabled = false,
-		grabAnimMode = "Top Sektirme",
+		grabAnimMode = "Ball Bounce",
 		grabAnimSpeed = 4,
 		grabAnimRadius = 8,
 
@@ -3862,18 +2761,25 @@ hCredits:AddCredit("3qr311", "Scripter")
 
 		autoClearOldestToy = false,
 		autoSpinSpawned = false,
-		autoSpinAroundMe = true,
+		autoSpinAroundMe = false,
 		autoSpinRadius = 12,
 		autoSpinHeight = 2,
 		autoSpinOrbitSpeed = 3,
 		autoSpinSpeed = 25,
 		autoSpinFloat = false,
 
+		toyShapeEnabled = false,
+		toyShapeMode = "Angel Wings",
+		toyShapeFollow = false,
+		toyShapeSpacing = 5,
+		toyShapeHeight = 4,
+		toyShapeDistance = 8,
+
 		autoFlingEnabled = false,
-		autoFlingMode = "Tüm Oyuncular",
-		autoFlingPower = 1600,
-		autoFlingDelay = 0.65,
-		autoStruggle = true,
+		autoFlingMode = "All Players",
+		autoFlingPower = 1800,
+		autoFlingDelay = 0.15,
+		autoStruggle = false,
 		autoStruggleInterval = 0.02,
 		antiRagdoll = false,
 		antiFling = false,
@@ -3890,7 +2796,7 @@ hCredits:AddCredit("3qr311", "Scripter")
 		flySpeed = 60,
 		noclip = false,
 		fov = 70,
-		slotNotifier = true,
+		slotNotifier = false,
 
 		esp = false,
 		espDistance = 600,
@@ -3904,12 +2810,12 @@ hCredits:AddCredit("3qr311", "Scripter")
 		grabbedLastSeen = 0,
 		throwToken = 0,
 		lastStruggle = 0,
-		slotTimeText = "Bilinmiyor",
+		slotTimeText = "Unknown",
 		slotReadyNotified = false,
 		selectedToy = nil,
 	}
 
-	-- ---------------- GRAB TAKİBİ + SÜPER FIRLAT + SPIN ----------------
+	-- ---------------- GRAB TRACKER + SUPER THROW + SPIN ----------------
 	sc4Connect(RunService.Heartbeat, function()
 		if sc4Unloaded then return end
 		local clone = workspace:FindFirstChild("GrabParts")
@@ -3942,9 +2848,9 @@ hCredits:AddCredit("3qr311", "Scripter")
 		local cam = workspace.CurrentCamera
 		local _, _, hrp = getChar()
 		local dir = cam and cam.CFrame.LookVector or Vector3.new(0, 0, -1)
-		if cfg.throwDirection == "Yukarı" then
+		if cfg.throwDirection == "Upward" then
 			dir = (dir + Vector3.new(0, 1, 0)).Unit
-		elseif cfg.throwDirection == "Karakter" and hrp then
+		elseif cfg.throwDirection == "Character" and hrp then
 			dir = hrp.CFrame.LookVector
 		end
 		local speed = math.clamp(100 * (tonumber(cfg.throwMultiplier) or 1), 50, tonumber(cfg.throwMaxSpeed) or 1800)
@@ -4011,7 +2917,7 @@ hCredits:AddCredit("3qr311", "Scripter")
 		end
 	end)
 
-	-- ---------------- HOVER / ORBIT / AUTOSPIN / BLACKHOLE / SHIELD / GRAB ANİM ----------------
+	-- ---------------- HOVER / ORBIT / AUTOSPIN / BLACKHOLE / SHIELD / GRAB ANIM ----------------
 	local hoveredParts = {}
 	local function unhoverPart(part)
 		local e = hoveredParts[part]
@@ -4048,37 +2954,19 @@ hCredits:AddCredit("3qr311", "Scripter")
 	local function releaseAllHovered(silent)
 		local n = 0
 		for p in pairs(hoveredParts) do unhoverPart(p); n = n + 1 end
-		if not silent then Aurora:Notify("Hover Grab", tostring(n) .. " sabitlenmiş parça bırakıldı.", 2.5, "info") end
+		if not silent then Aurora:Notify("Hover Grab", "Released " .. tostring(n) .. " frozen part(s).", 2.5, "info") end
 	end
 
 	local lastTrackedGrab = nil
-	local autoSpinWasOn = false
-
 	sc4Connect(workspace.ChildRemoved, function(child)
 		if sc4Unloaded then return end
 		if child.Name == "GrabParts" and cfg.hoverGrab then
 			local target = st.grabbedPart or lastTrackedGrab
 			if target and target:IsA("BasePart") and not target.Anchored and target:IsDescendantOf(workspace) then
 				hoverPart(target)
-				Aurora:Notify("Hover Grab", target.Name .. " havada sabitlendi.", 2, "success")
+				Aurora:Notify("Hover Grab", target.Name .. " frozen in mid-air.", 2, "ok")
 			end
 		end
-	end)
-
-	task.spawn(function()
-		local folder = workspace:WaitForChild(LocalPlayer.Name .. "SpawnedInToys", 15)
-		if not folder or sc4Unloaded then return end
-		sc4Connect(folder.ChildAdded, function(toy)
-			if sc4Unloaded or not cfg.autoSpinSpawned or not toy:IsA("Model") then return end
-			task.defer(function()
-				local primary = toy.PrimaryPart or toy:FindFirstChildWhichIsA("BasePart")
-				if primary and not primary.Anchored then
-					local cam = workspace.CurrentCamera
-					local _, _, hrp = getChar()
-					safeFire("SetNetworkOwner", primary, cam and cam.CFrame or (hrp and hrp.CFrame or CFrame.new()))
-				end
-			end)
-		end)
 	end)
 
 	sc4Connect(RunService.Heartbeat, function()
@@ -4097,7 +2985,6 @@ hCredits:AddCredit("3qr311", "Scripter")
 
 		local myToys = getMySpawnedToys()
 		if cfg.autoSpinSpawned then
-			autoSpinWasOn = true
 			local count = #myToys
 			if count > 0 then
 				local spinSpd = math.clamp(tonumber(cfg.autoSpinSpeed) or 25, 2, 150)
@@ -4139,8 +3026,7 @@ hCredits:AddCredit("3qr311", "Scripter")
 					end
 				end
 			end
-		elseif autoSpinWasOn then
-			autoSpinWasOn = false
+		else
 			for _, toy in ipairs(myToys) do
 				local primary = toy.PrimaryPart or toy:FindFirstChildWhichIsA("BasePart")
 				if primary then
@@ -4148,6 +3034,99 @@ hCredits:AddCredit("3qr311", "Scripter")
 					if bp then bp:Destroy() end
 					local bav = primary:FindFirstChild("SC4OrbitBAV")
 					if bav then bav:Destroy() end
+				end
+			end
+		end
+
+		-- Toy Shapes / Formations (Angel Wings, Line/Bridge, Heart, Crown, Star, Wall, Tower)
+		local shapeAnchorCF = nil
+		if cfg.toyShapeEnabled and #myToys > 0 and hrp then
+			if cfg.toyShapeFollow or not st.shapeLockedCF then
+				st.shapeLockedCF = hrp.CFrame
+			end
+			shapeAnchorCF = st.shapeLockedCF
+			local count = #myToys
+			local sp = math.clamp(tonumber(cfg.toyShapeSpacing) or 5, 1.5, 25)
+			local hOff = tonumber(cfg.toyShapeHeight) or 4
+			local dOff = tonumber(cfg.toyShapeDistance) or 8
+			local mode = cfg.toyShapeMode or "Angel Wings"
+
+			for i, toy in ipairs(myToys) do
+				local primary = toy.PrimaryPart or toy:FindFirstChildWhichIsA("BasePart")
+				if primary and not primary.Anchored then
+					local localPos = Vector3.zero
+					local localRot = CFrame.new()
+
+					if mode == "Angel Wings" then
+						local side = (i % 2 == 1) and -1 or 1
+						local rank = math.ceil(i / 2)
+						local x = side * (2.5 + rank * sp)
+						local y = hOff + rank * (sp * 0.38)
+						local z = dOff * 0.4 + rank * (sp * 0.12)
+						localPos = Vector3.new(x, y, z)
+						localRot = CFrame.Angles(0, 0, side * math.rad(18))
+					elseif mode == "Line / Bridge" then
+						local mid = (count + 1) / 2
+						localPos = Vector3.new((i - mid) * sp, hOff, -dOff)
+					elseif mode == "Heart" then
+						local theta = ((i - 1) / math.max(1, count)) * (math.pi * 2)
+						local scale = sp * 0.14
+						local hx = 16 * (math.sin(theta) ^ 3) * scale
+						local hy = (13 * math.cos(theta) - 5 * math.cos(2 * theta) - 2 * math.cos(3 * theta) - math.cos(4 * theta)) * scale
+						localPos = Vector3.new(hx, hOff + hy + sp * 1.4, -dOff)
+					elseif mode == "Crown / Halo" then
+						local theta = ((i - 1) / math.max(1, count)) * (math.pi * 2)
+						local r = math.max(4, sp * 1.4)
+						localPos = Vector3.new(math.cos(theta) * r, hOff + 6, math.sin(theta) * r)
+						localRot = CFrame.Angles(0, -theta, 0)
+					elseif mode == "Star" then
+						local theta = ((i - 1) / math.max(1, count)) * (math.pi * 2)
+						local outerR = sp * 2.2
+						local innerR = sp * 0.95
+						local r = (i % 2 == 1) and outerR or innerR
+						localPos = Vector3.new(math.cos(theta) * r, hOff + math.sin(theta) * r + outerR * 0.5, -dOff)
+					elseif mode == "Wall / Grid" then
+						local cols = math.max(1, math.ceil(math.sqrt(count)))
+						local col = ((i - 1) % cols) - (cols - 1) / 2
+						local row = math.floor((i - 1) / cols)
+						localPos = Vector3.new(col * sp, hOff + row * (sp * 0.85), -dOff)
+					elseif mode == "Tower / Pillar" then
+						localPos = Vector3.new(0, hOff + (i - 1) * (sp * 0.8), -dOff)
+					end
+
+					local worldCF = shapeAnchorCF * CFrame.new(localPos) * localRot
+					local bp = primary:FindFirstChild("SC4ShapeBP")
+					if not bp then
+						bp = Instance.new("BodyPosition")
+						bp.Name = "SC4ShapeBP"
+						bp.MaxForce = Vector3.new(1e6, 1e6, 1e6)
+						bp.P = 25000
+						bp.D = 1100
+						bp.Parent = primary
+					end
+					bp.Position = worldCF.Position
+
+					local bg = primary:FindFirstChild("SC4ShapeBG")
+					if not bg then
+						bg = Instance.new("BodyGyro")
+						bg.Name = "SC4ShapeBG"
+						bg.MaxTorque = Vector3.new(1e6, 1e6, 1e6)
+						bg.P = 18000
+						bg.D = 800
+						bg.Parent = primary
+					end
+					bg.CFrame = worldCF
+				end
+			end
+		else
+			st.shapeLockedCF = nil
+			for _, toy in ipairs(myToys) do
+				local primary = toy.PrimaryPart or toy:FindFirstChildWhichIsA("BasePart")
+				if primary then
+					local bp = primary:FindFirstChild("SC4ShapeBP")
+					if bp then bp:Destroy() end
+					local bg = primary:FindFirstChild("SC4ShapeBG")
+					if bg then bg:Destroy() end
 				end
 			end
 		end
@@ -4199,25 +3178,25 @@ hCredits:AddCredit("3qr311", "Scripter")
 			local cam = workspace.CurrentCamera
 			local t = os.clock() * math.clamp(tonumber(cfg.grabAnimSpeed) or 4, 0.5, 20)
 			local rad = math.clamp(tonumber(cfg.grabAnimRadius) or 8, 3, 30)
-			local mode = cfg.grabAnimMode or "Top Sektirme"
+			local mode = cfg.grabAnimMode or "Ball Bounce"
 			local basePos = cam and (cam.CFrame.Position + cam.CFrame.LookVector * math.max(10, rad + 4)) or (hrp.Position + hrp.CFrame.LookVector * 12)
 			local rightVec = cam and cam.CFrame.RightVector or hrp.CFrame.RightVector
 			local targetPos, spinVec = basePos, Vector3.new(15, 35, 15)
 
-			if mode == "Top Sektirme" then
+			if mode == "Ball Bounce" then
 				targetPos = basePos + rightVec * (math.cos(t * 0.9) * rad * 0.55) + Vector3.yAxis * (math.abs(math.sin(t * 1.4)) * rad - rad * 0.35)
 				spinVec = Vector3.new(25, 45, 25)
-			elseif mode == "Sağa-Sola Sarkaç" then
+			elseif mode == "Side Pendulum" then
 				targetPos = basePos + rightVec * (math.sin(t * 1.5) * rad * 1.35) + Vector3.yAxis * (-math.abs(math.cos(t * 1.5)) * rad * 0.35)
 				spinVec = Vector3.new(0, math.cos(t * 1.5) * 40, math.sin(t * 1.5) * 35)
-			elseif mode == "Tornado / Girdap" then
+			elseif mode == "Tornado Vortex" then
 				local r = rad * 0.85
 				targetPos = hrp.Position + Vector3.new(math.cos(t * 2) * r, 3 + math.sin(t * 1.2) * 4, math.sin(t * 2) * r)
 				spinVec = Vector3.new(40, 90, 40)
-			elseif mode == "Baş Üstü Pervane" then
+			elseif mode == "Overhead Helicopter" then
 				targetPos = hrp.Position + Vector3.new(math.cos(t * 2.2) * rad * 0.7, 9, math.sin(t * 2.2) * rad * 0.7)
 				spinVec = Vector3.new(0, 110, 0)
-			elseif mode == "Sekiz Çizme (∞)" then
+			elseif mode == "Figure-8" then
 				targetPos = basePos + rightVec * (math.sin(t) * rad * 1.2) + Vector3.yAxis * (math.sin(t * 2) * rad * 0.55)
 				spinVec = Vector3.new(20, 30, 20)
 			end
@@ -4237,7 +3216,7 @@ hCredits:AddCredit("3qr311", "Scripter")
 	local function meteorSlam()
 		local gPart = st.grabbedPart
 		if not gPart or not gPart:IsDescendantOf(workspace) or gPart.Anchored then
-			Aurora:Notify("Meteor Atışı", "Önce bir oyuncu veya obje tut!", 2.5, "warn")
+			Aurora:Notify("Meteor Slam", "Grab a player or object first!", 2.5, "warn")
 			return
 		end
 		local parts = getAssemblyParts(gPart)
@@ -4247,7 +3226,7 @@ hCredits:AddCredit("3qr311", "Scripter")
 				p.AssemblyAngularVelocity = Vector3.new(50, 80, 50)
 			end
 		end
-		Aurora:Notify("Meteor Atışı", gPart.Name .. " gökyüzüne fırlatıldı!", 2, "info")
+		Aurora:Notify("Meteor Slam", gPart.Name .. " launched skyward!", 2, "info")
 		task.delay(0.45, function()
 			if gPart and gPart:IsDescendantOf(workspace) then
 				for _, p in ipairs(parts) do
@@ -4257,85 +3236,177 @@ hCredits:AddCredit("3qr311", "Scripter")
 		end)
 	end
 
-	-- ---------------- OTO FIRLATMA ----------------
+	-- ---------------- AUTO FLING (SAFE CLEAN GRAB TORSO + SINGLE-SELECT TARGET) ----------------
 	local autoFlingBusy = false
-	local function flingTargetPlayerOnce(targetPlayer)
+	local selectedFlingPlayer = nil
+	local flingFilter = ""
+	local flingAbortUntil = 0
+	local lastNoSelectWarn = 0
+
+	local function isPlayerInPlot(plr)
+		if not plr then return false end
+		local pi = workspace:FindFirstChild("PlotItems")
+		local pip = pi and pi:FindFirstChild("PlayersInPlots")
+		if pip and pip:FindFirstChild(plr.Name) then return true end
+		return false
+	end
+
+	local function bindFlingAbort(evName)
+		local ev = resolveRemote(evName)
+		if ev and ev:IsA("RemoteEvent") then
+			sc4Connect(ev.OnClientEvent, function()
+				flingAbortUntil = os.clock() + 0.65
+			end)
+		end
+	end
+	bindFlingAbort("EndGrabEarly")
+	bindFlingAbort("GameCorrectionsNotify")
+
+	local function isTargetSafeToGrab(targetPlayer)
 		if not targetPlayer or targetPlayer == LocalPlayer then return false end
 		local tChar = targetPlayer.Character
-		local tHRP = tChar and tChar:FindFirstChild("HumanoidRootPart")
-		local tTorso = tChar and (tChar:FindFirstChild("Torso") or tChar:FindFirstChild("UpperTorso"))
-		local tHum = tChar and tChar:FindFirstChildOfClass("Humanoid")
-		local _, _, hrp = getChar()
-		if not (tHRP and tHum and tHum.Health > 0 and hrp and hrp.Parent) then return false end
+		if not tChar or not tChar:IsDescendantOf(workspace) then return false end
+		local tHum = tChar:FindFirstChildOfClass("Humanoid")
+		local tHRP = tChar:FindFirstChild("HumanoidRootPart")
+		local tTorso = tChar:FindFirstChild("Torso") or tChar:FindFirstChild("UpperTorso") or tChar:FindFirstChild("Head")
+		if not (tHum and tHRP and tTorso and tHum.Health > 0) then return false end
+		if tTorso.Anchored and tHRP.Anchored then return false end
+		return true
+	end
 
-		local grabTarget = tHRP or tTorso
-		local power = math.clamp(tonumber(cfg.autoFlingPower) or 1600, 200, 4500)
-		local myChar = LocalPlayer.Character
-		local tempNoclipParts = {}
-
-		local function enableTempNoclip()
-			if not myChar then return end
-			for _, d in ipairs(myChar:GetDescendants()) do
-				if d:IsA("BasePart") and d.CanCollide then
-					tempNoclipParts[d] = true
-					d.CanCollide = false
-				end
+	local function findClearStandPos(tHRP, tTorso, myChar, tChar)
+		local ignore = { myChar, tChar }
+		local pi = workspace:FindFirstChild("PlotItems")
+		if pi then
+			local pip = pi:FindFirstChild("PlayersInPlots")
+			if pip then table.insert(ignore, pip) end
+		end
+		local rp = RaycastParams.new()
+		rp.FilterType = Enum.RaycastFilterType.Exclude
+		rp.IgnoreWater = true
+		rp.FilterDescendantsInstances = ignore
+		local offsets = {
+			CFrame.new(0, 0.6, 6.0),
+			CFrame.new(6.0, 0.6, 0),
+			CFrame.new(-6.0, 0.6, 0),
+			CFrame.new(0, 5.0, 4.0),
+			CFrame.new(0, 0.6, -6.0),
+		}
+		for _, off in ipairs(offsets) do
+			local cand = (tHRP.CFrame * off).Position
+			local headPos = cand + Vector3.new(0, 1.5, 0)
+			local res = workspace:Raycast(headPos, tTorso.Position - headPos, rp)
+			if not res or (res.Instance and (res.Instance.Transparency >= 0.9 or not res.Instance.CanCollide)) then
+				return cand
 			end
 		end
+		return (tHRP.CFrame * CFrame.new(0, 0.6, 6.0)).Position
+	end
 
-		local function restoreTempNoclip()
+	local function getDynamicSyncTime()
+		local pingMs = 60
+		pcall(function()
+			local stSvc = game:GetService("Stats")
+			local item = stSvc and stSvc.Network and stSvc.Network.ServerStatsItem and stSvc.Network.ServerStatsItem["Data Ping"]
+			if item then pingMs = tonumber(item:GetValue()) or 60 end
+		end)
+		return math.clamp((pingMs / 1000) * 1.8 + 0.16, 0.24, 0.50)
+	end
+
+	local function flingTargetPlayerOnce(targetPlayer)
+		if os.clock() < flingAbortUntil then return false end
+		if not isTargetSafeToGrab(targetPlayer) then return false end
+		local tChar = targetPlayer.Character
+		local tHRP = tChar:FindFirstChild("HumanoidRootPart")
+		local tTorso = tChar:FindFirstChild("Torso") or tChar:FindFirstChild("UpperTorso") or tChar:FindFirstChild("Head")
+		local myChar, _, hrp = getChar()
+		if not (myChar and hrp and hrp.Parent) then return false end
+
+		local power = math.clamp(tonumber(cfg.autoFlingPower) or 1800, 200, 4500)
+
+		-- Temporary noclip on self so we never collide/fly
+		local tempNoclip = {}
+		for _, d in ipairs(myChar:GetDescendants()) do
+			if d:IsA("BasePart") and d.CanCollide then
+				tempNoclip[d] = true
+				d.CanCollide = false
+			end
+		end
+		local function restoreNoclip()
 			if cfg.noclip then return end
-			for p in pairs(tempNoclipParts) do
+			for p in pairs(tempNoclip) do
 				if p and p.Parent then pcall(function() p.CanCollide = true end) end
 			end
 		end
 
-		enableTempNoclip()
-
-		-- 1) Hedefin güvenli mesafe (6.5 stud) arkasına ışınlan ve aimCF ile SetNetworkOwner iste
-		local function stepBehindAndClaim()
-			if not (tHRP and tHRP.Parent and hrp and hrp.Parent) then return false end
-			enableTempNoclip()
-			local behindPos = (tHRP.CFrame * CFrame.new(0, 0.5, 6.5)).Position
-			local lookCF = CFrame.lookAt(behindPos, tHRP.Position)
-			hrp.CFrame = lookCF
-			hrp.AssemblyLinearVelocity = Vector3.zero
-			hrp.AssemblyAngularVelocity = Vector3.zero
-			local headPos = (hrp.Position + Vector3.new(0, 1.5, 0))
-			local aimCF = CFrame.lookAt(headPos, grabTarget.Position)
-			safeFire("CreateGrabLine", grabTarget, CFrame.new())
-			safeFire("ExtendGrabLine", 18)
-			safeFire("SetNetworkOwner", grabTarget, aimCF)
-			if tTorso and tTorso ~= grabTarget then
-				safeFire("SetNetworkOwner", tTorso, aimCF)
-			end
-			return true
-		end
-
-		local claimDeadline = os.clock() + 0.40
-		while os.clock() < claimDeadline and not sc4Unloaded do
-			if not stepBehindAndClaim() then
-				restoreTempNoclip()
+		-- STEP 1: Sync position behind target so server confirms we are in grab range
+		local syncEnd = os.clock() + getDynamicSyncTime()
+		while os.clock() < syncEnd and not sc4Unloaded do
+			if os.clock() < flingAbortUntil or not isTargetSafeToGrab(targetPlayer) or not (hrp and hrp.Parent) then
+				restoreNoclip()
 				return false
 			end
+			local posNow = findClearStandPos(tHRP, tTorso, myChar, tChar)
+			hrp.CFrame = CFrame.lookAt(posNow, tTorso.Position)
+			hrp.AssemblyLinearVelocity = Vector3.zero
+			hrp.AssemblyAngularVelocity = Vector3.zero
+			RunService.Heartbeat:Wait()
+		end
+
+		if os.clock() < flingAbortUntil or not isTargetSafeToGrab(targetPlayer) or not (hrp and hrp.Parent) then
+			restoreNoclip()
+			return false
+		end
+
+		-- STEP 2: Clean grab on visible Torso + confirm NetworkOwnership
+		local distNow = (hrp.Position - tTorso.Position).Magnitude
+		local headPos = hrp.Position + Vector3.new(0, 1.5, 0)
+		local aimCF = CFrame.lookAt(headPos, tTorso.Position)
+		safeFire("CreateGrabLine", tTorso, CFrame.new())
+		safeFire("ExtendGrabLine", math.clamp(math.floor(distNow + 2), 6, 18))
+		safeFire("SetNetworkOwner", tTorso, aimCF)
+
+		local holdCF = hrp.CFrame
+		local ownStart = os.clock()
+		local ownEnd = ownStart + 0.26
+		local refired = false
+		local gotOwnership = (type(isnetworkowner) ~= "function")
+		while os.clock() < ownEnd and not sc4Unloaded do
+			if os.clock() < flingAbortUntil or not (tHRP and tHRP.Parent and hrp and hrp.Parent) then break end
+			hrp.CFrame = holdCF
+			hrp.AssemblyLinearVelocity = Vector3.zero
+			hrp.AssemblyAngularVelocity = Vector3.zero
 			if type(isnetworkowner) == "function" then
-				local okOwn, owned = pcall(isnetworkowner, grabTarget)
-				if okOwn and owned then
+				local ok1, o1 = pcall(isnetworkowner, tTorso)
+				local ok2, o2 = pcall(isnetworkowner, tHRP)
+				if (ok1 and o1) or (ok2 and o2) then
+					gotOwnership = true
 					break
 				end
 			end
-			task.wait(0.08)
+			if not refired and (os.clock() - ownStart) >= 0.13 then
+				refired = true
+				local hp2 = hrp.Position + Vector3.new(0, 1.5, 0)
+				safeFire("SetNetworkOwner", tTorso, CFrame.lookAt(hp2, tTorso.Position))
+			end
+			RunService.Heartbeat:Wait()
 		end
 
-		-- 2) Kendi karakterini sabit tutup (havaya uçmadan) hedefe güçlü fırlatma uygula
-		if tHRP and tHRP.Parent and tHRP:IsDescendantOf(workspace) then
-			local lookDir = hrp and hrp.CFrame.LookVector or Vector3.new(0, 0, -1)
+		if not gotOwnership and isPlayerInPlot(targetPlayer) then
+			safeFire("DestroyGrabLine", tTorso)
+			restoreNoclip()
+			Aurora:Notify("Safe Zone", targetPlayer.DisplayName .. " is in a protected house/plot (server blocked grab).", 3, "warn")
+			return false
+		end
+
+		-- STEP 3: Sustained BodyVelocity on tHRP (assembly root) + AssemblyLinearVelocity on all parts
+		if os.clock() >= flingAbortUntil and tHRP and tHRP.Parent and tHRP:IsDescendantOf(workspace) then
+			local lookDir = hrp.CFrame.LookVector
 			local flatDir = Vector3.new(lookDir.X, 0, lookDir.Z)
 			if flatDir.Magnitude < 0.01 then flatDir = Vector3.new(0, 0, -1) end
-			local flingDir = (flatDir.Unit + Vector3.new(0, 0.78, 0)).Unit
-			local vel = flingDir * power
+			local vel = (flatDir.Unit + Vector3.new(0, 0.80, 0)).Unit * power
 			local parts = getAssemblyParts(tHRP)
-			local holdMyCF = hrp and hrp.CFrame or nil
+
 			local bv = Instance.new("BodyVelocity")
 			bv.Name = "SC4AutoFlingBV"
 			bv.MaxForce = Vector3.new(1e7, 1e7, 1e7)
@@ -4343,31 +3414,45 @@ hCredits:AddCredit("3qr311", "Scripter")
 			bv.Velocity = vel
 			bv.Parent = tHRP
 
-			local endAt = os.clock() + 0.35
-			while os.clock() < endAt and not sc4Unloaded do
-				if not (tHRP and tHRP.Parent and tHRP:IsDescendantOf(workspace)) then break end
-				enableTempNoclip()
+			local launchEnd = os.clock() + 0.40
+			while os.clock() < launchEnd and not sc4Unloaded do
+				if os.clock() < flingAbortUntil or not (tHRP and tHRP.Parent) then break end
 				if hrp and hrp.Parent then
+					hrp.CFrame = holdCF
 					hrp.AssemblyLinearVelocity = Vector3.zero
 					hrp.AssemblyAngularVelocity = Vector3.zero
-					if holdMyCF then hrp.CFrame = holdMyCF end
 				end
 				bv.Velocity = vel
 				for _, p in ipairs(parts) do
 					if p:IsA("BasePart") and not p.Anchored then
 						p.AssemblyLinearVelocity = vel
-						p.AssemblyAngularVelocity = Vector3.new(90, 160, 90)
+						p.AssemblyAngularVelocity = Vector3.new(100, 180, 100)
 					end
 				end
 				RunService.Heartbeat:Wait()
 			end
 			if bv and bv.Parent then bv:Destroy() end
-			safeFire("DestroyGrabLine", grabTarget)
-			restoreTempNoclip()
+			safeFire("DestroyGrabLine", tTorso)
+			restoreNoclip()
 			return true
 		end
-		restoreTempNoclip()
+		safeFire("DestroyGrabLine", tTorso)
+		restoreNoclip()
 		return false
+	end
+
+	local function flingSingleTargetNow(targetPlayer)
+		if autoFlingBusy or not targetPlayer then return end
+		autoFlingBusy = true
+		task.spawn(function()
+			local ok = flingTargetPlayerOnce(targetPlayer)
+			if ok then
+				Aurora:Notify("Auto Fling", "Flung " .. targetPlayer.DisplayName .. "!", 2, "ok")
+			else
+				Aurora:Notify("Auto Fling", "Could not fling " .. targetPlayer.DisplayName .. ".", 2, "warn")
+			end
+			autoFlingBusy = false
+		end)
 	end
 
 	local function autoFlingOnce()
@@ -4389,12 +3474,12 @@ hCredits:AddCredit("3qr311", "Scripter")
 				end
 			end
 			if nearest then
-
+				cfg.autoFlingEnabled = false
 				if flingTargetPlayerOnce(nearest) then
-					Aurora:Notify("Oto Fırlat", nearest.Name .. " arkadan yakalanıp fırlatıldı!", 2.5, "success")
+					Aurora:Notify("Auto Fling", "Flung " .. nearest.DisplayName .. "!", 2.5, "ok")
 				end
 			else
-				Aurora:Notify("Oto Fırlat", "Uygun hedef oyuncu bulunamadı.", 2.5, "warn")
+				Aurora:Notify("Auto Fling", "No valid target player found.", 2.5, "warn")
 			end
 			autoFlingBusy = false
 		end)
@@ -4410,12 +3495,22 @@ hCredits:AddCredit("3qr311", "Scripter")
 					if plr ~= LocalPlayer and plr.Character then
 						local pHRP = plr.Character:FindFirstChild("HumanoidRootPart")
 						local pHum = plr.Character:FindFirstChildOfClass("Humanoid")
-						if pHRP and pHum and pHum.Health > 0 then table.insert(list, plr) end
+						if pHRP and pHum and pHum.Health > 0 then
+							if cfg.autoFlingMode == "Selected Player" then
+								if selectedFlingPlayer == plr then table.insert(list, plr) end
+							else
+								table.insert(list, plr)
+							end
+						end
 					end
+				end
+				if #list == 0 and cfg.autoFlingMode == "Selected Player" and (os.clock() - lastNoSelectWarn > 4) then
+					lastNoSelectWarn = os.clock()
+					Aurora:Notify("Auto Fling", "Select a target player from Target Players first!", 3, "warn")
 				end
 				if #list > 0 then
 					local target = nil
-					if cfg.autoFlingMode == "En Yakın Oyuncu" and hrp then
+					if cfg.autoFlingMode == "Nearest Player" and hrp then
 						local bestD = math.huge
 						for _, plr in ipairs(list) do
 							local d = (plr.Character.HumanoidRootPart.Position - hrp.Position).Magnitude
@@ -4431,9 +3526,14 @@ hCredits:AddCredit("3qr311", "Scripter")
 						autoFlingBusy = false
 					end
 				end
-				task.wait(math.clamp(tonumber(cfg.autoFlingDelay) or 0.65, 0.2, 5))
+				local dly = math.clamp(tonumber(cfg.autoFlingDelay) or 0, 0, 3)
+				if dly <= 0 then
+					RunService.Heartbeat:Wait()
+				else
+					task.wait(dly)
+				end
 			else
-				task.wait(0.2)
+				task.wait(0.15)
 			end
 		end
 	end)
@@ -4477,7 +3577,7 @@ hCredits:AddCredit("3qr311", "Scripter")
 		end
 	end)
 
-	-- ---------------- HAREKET: FLY + NOCLIP + INF JUMP + NO BOB + LOCK ----------------
+	-- ---------------- MOVEMENT: FLY + NOCLIP + INF JUMP + NO BOB + LOCK ----------------
 	local flyBV, flyBG
 	local function setFly(on)
 		cfg.fly = on
@@ -4533,7 +3633,7 @@ hCredits:AddCredit("3qr311", "Scripter")
 		end
 	end
 	sc4Connect(RunService.Stepped, applyNoclipFrame)
-
+	sc4Connect(RunService.Heartbeat, applyNoclipFrame)
 
 	sc4Connect(RunService.RenderStepped, function()
 		if sc4Unloaded then return end
@@ -4547,6 +3647,19 @@ hCredits:AddCredit("3qr311", "Scripter")
 			if UserInputService:IsKeyDown(Enum.KeyCode.A) then move = move - cam.CFrame.RightVector end
 			if UserInputService:IsKeyDown(Enum.KeyCode.Space) then move = move + Vector3.yAxis end
 			if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then move = move - Vector3.yAxis end
+			-- Mobile thumbstick + Jump button support
+			if move.Magnitude < 0.01 and hum.MoveDirection.Magnitude > 0.05 then
+				local flatLook = Vector3.new(cam.CFrame.LookVector.X, 0, cam.CFrame.LookVector.Z)
+				flatLook = flatLook.Magnitude > 0.001 and flatLook.Unit or Vector3.new(0, 0, -1)
+				local flatRight = Vector3.new(cam.CFrame.RightVector.X, 0, cam.CFrame.RightVector.Z)
+				flatRight = flatRight.Magnitude > 0.001 and flatRight.Unit or Vector3.new(1, 0, 0)
+				local fwd = hum.MoveDirection:Dot(flatLook)
+				local side = hum.MoveDirection:Dot(flatRight)
+				move = cam.CFrame.LookVector * fwd + cam.CFrame.RightVector * side
+			end
+			if AIM_MOBILE and hum.Jump then
+				move = move + Vector3.yAxis
+			end
 			if move.Magnitude > 0 then move = move.Unit end
 			local sp = tonumber(cfg.flySpeed) or 60
 			if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then sp = sp * 2 end
@@ -4571,7 +3684,7 @@ hCredits:AddCredit("3qr311", "Scripter")
 		if hum and hum.Health > 0 then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
 	end)
 
-	-- ---------------- KENDİ CHARACTERWAYPOINT GİZLEYİCİ + ESP ----------------
+	-- ---------------- OWN CHARACTERWAYPOINT HIDER + ESP ----------------
 	local function isOwnWaypoint(child, bg)
 		if child and child.Name == LocalPlayer.Name then return true end
 		local char, _, hrp = getChar()
@@ -4599,8 +3712,6 @@ hCredits:AddCredit("3qr311", "Scripter")
 
 	sc4Connect(RunService.RenderStepped, function()
 		if sc4Unloaded then return end
-		if os.clock() - (st.lastWp or 0) < 0.3 then return end
-		st.lastWp = os.clock()
 		local wp = workspace:FindFirstChild("Waypoints")
 		if not wp then return end
 		for _, child in ipairs(wp:GetChildren()) do
@@ -4619,134 +3730,65 @@ hCredits:AddCredit("3qr311", "Scripter")
 		end
 	end)
 
-	local espFolder = Instance.new("Folder")
-	espFolder.Name = "SC4_AuroraESP"
-	espFolder.Parent = workspace
-	local espMap = {}
-	local function clearESP()
-		for _, e in pairs(espMap) do
-			if e.hl then e.hl:Destroy() end
-			if e.bb then e.bb:Destroy() end
-		end
-		espMap = {}
-	end
-	task.spawn(function()
-		while not sc4Unloaded do
-			if cfg.esp then
-					local _, _, hrp = getChar()
-					local seen = {}
-
-				for _, plr in ipairs(Players:GetPlayers()) do
-					if plr ~= LocalPlayer and plr.Character then
-						local pHRP = plr.Character:FindFirstChild("HumanoidRootPart")
-						local pHum = plr.Character:FindFirstChildOfClass("Humanoid")
-						if pHRP and pHum and pHum.Health > 0 then
-							local dist = hrp and (pHRP.Position - hrp.Position).Magnitude or 0
-							seen[plr] = true
-							local entry = espMap[plr]
-
-							if not entry then
-								local hl = Instance.new("Highlight")
-								hl.FillColor = Color3.fromRGB(160, 90, 255)
-								hl.FillTransparency = 0.65
-								hl.OutlineColor = Color3.fromRGB(255, 255, 255)
-								hl.Parent = espFolder
-								local bb = Instance.new("BillboardGui")
-								bb.Size = UDim2.new(0, 160, 0, 32)
-								bb.StudsOffset = Vector3.new(0, 3.2, 0)
-								bb.AlwaysOnTop = true
-								bb.Parent = espFolder
-								local lbl = Instance.new("TextLabel")
-								lbl.Size = UDim2.fromScale(1, 1)
-								lbl.BackgroundTransparency = 1
-								lbl.Font = Enum.Font.GothamBold
-								lbl.TextSize = 12
-								lbl.TextColor3 = Color3.fromRGB(255, 255, 255)
-								lbl.TextStrokeTransparency = 0.3
-								lbl.Parent = bb
-								entry = { hl = hl, bb = bb, lbl = lbl }
-								espMap[plr] = entry
-							end
-							local show = dist <= (tonumber(cfg.espDistance) or 600)
-							entry.hl.Adornee = show and plr.Character or nil
-							entry.hl.Enabled = show
-							entry.bb.Adornee = show and pHRP or nil
-							entry.bb.Enabled = show
-							entry.lbl.Text = plr.Name .. " [" .. tostring(math.floor(dist)) .. "m]"
-						end
-					end
-				end
-					for plr, e in pairs(espMap) do
-						if not seen[plr] then
-							if e.hl then e.hl:Destroy() end
-							if e.bb then e.bb:Destroy() end
-							espMap[plr] = nil
-						end
-					end
-				else
-					if next(espMap) ~= nil then clearESP() end
-			end
-			task.wait(0.25)
-		end
-	end)
-
 	local slotLabelRef = nil
+	local function setSlotStatusText(txt)
+		st.slotTimeText = txt
+		if slotLabelRef and slotLabelRef.Set then
+			slotLabelRef:Set("Slot Status: " .. txt)
+		end
+	end
+
 	local slotEv = resolveRemote("SlotTime")
 	if slotEv and slotEv:IsA("RemoteEvent") then
 		sc4Connect(slotEv.OnClientEvent, function(secs)
 			local s = tonumber(secs) or 0
 			local m = math.floor(s / 60)
 			local rem = math.floor(s - m * 60)
-			st.slotTimeText = s <= 0 and "HAZIR (0:00)" or (tostring(m) .. ":" .. string.format("%02i", rem))
-			if slotLabelRef and slotLabelRef.Set then slotLabelRef:Set("Slot Durumu: " .. st.slotTimeText) end
+			setSlotStatusText(s <= 0 and "READY (0:00)" or (tostring(m) .. ":" .. string.format("%02i", rem)))
 			if s <= 0 and not st.slotReadyNotified then
 				st.slotReadyNotified = true
-				if cfg.slotNotifier then Aurora:Notify("Slot Makinesi", "Slot çevirmeye HAZIR! (0:00)", 4, "success") end
+				if cfg.slotNotifier then Aurora:Notify("Slot Machine", "Slot is READY to spin! (0:00)", 4, "ok") end
 			elseif s > 0 then
 				st.slotReadyNotified = false
 			end
 		end)
 	end
 
-	local function tpTo(locName)
-		local _, _, hrp = getChar()
-		if not hrp then return end
-		local targetCF = nil
-		if locName == "Slots" then
+	-- Live fallback reader from workspace.Slots UI so Slot Status works immediately even before SlotTime event fires
+	task.spawn(function()
+		while not sc4Unloaded do
 			local slots = workspace:FindFirstChild("Slots")
-			local first = slots and slots:FindFirstChildWhichIsA("Model")
-			if first then targetCF = first:GetPivot() * CFrame.new(0, 3, 6) end
-		elseif locName == "Farm" or locName == "Food" or locName == "Music" then
-			local f = workspace:FindFirstChild(locName)
-			local p = f and f:FindFirstChildWhichIsA("BasePart", true)
-			if p then targetCF = CFrame.new(p.Position + Vector3.new(0, 6, 0)) end
-		elseif locName == "Spawn" then
-			local sp = workspace:FindFirstChildWhichIsA("SpawnLocation", true)
-			targetCF = sp and CFrame.new(sp.Position + Vector3.new(0, 5, 0)) or CFrame.new(0, 15, 0)
-		elseif locName == "Plot" then
-			local plots = workspace:FindFirstChild("Plots") or workspace:FindFirstChild("PlotItems")
-			if plots then
-				for _, d in ipairs(plots:GetDescendants()) do
-					if d:IsA("StringValue") and d.Value == LocalPlayer.Name and d.Parent then
-						local p = d.Parent:FindFirstChildWhichIsA("BasePart", true)
-						if p then targetCF = CFrame.new(p.Position + Vector3.new(0, 8, 0)); break end
+			if slots then
+				local first = slots:FindFirstChildWhichIsA("Model")
+				local scr = first and first:FindFirstChild("Screen")
+				local sgui = scr and scr:FindFirstChild("SlotGui")
+				local tlf = sgui and sgui:FindFirstChild("TimeLeftFrame")
+				if tlf then
+					local readyWords = tlf:FindFirstChild("SpinReadyWords")
+					local ooo = tlf:FindFirstChild("OutOfOrder")
+					local tText = tlf:FindFirstChild("TimeText")
+					if ooo and ooo.Visible then
+						setSlotStatusText("Out of Order")
+					elseif readyWords and readyWords.Visible then
+						setSlotStatusText("READY (0:00)")
+						if not st.slotReadyNotified then
+							st.slotReadyNotified = true
+							if cfg.slotNotifier then Aurora:Notify("Slot Machine", "Slot is READY to spin! (0:00)", 4, "ok") end
+						end
+					elseif tText and tText:IsA("TextLabel") and tText.Text ~= "" then
+						setSlotStatusText(tText.Text)
+						st.slotReadyNotified = false
 					end
 				end
 			end
+			task.wait(1)
 		end
-		if targetCF then
-			hrp.CFrame = targetCF
-			hrp.AssemblyLinearVelocity = Vector3.zero
-			Aurora:Notify("Işınlanma", locName .. " konumuna gidildi.", 2, "success")
-		else
-			Aurora:Notify("Işınlanma", locName .. " bulunamadı.", 2.5, "warn")
-		end
-	end
+	end)
 
 	local function clearAllToys()
 		local toys = getMySpawnedToys()
 		for _, t in ipairs(toys) do safeFire("DestroyToy", t) end
-		Aurora:Notify("Oyuncaklar", tostring(#toys) .. " oyuncak silindi.", 2.5, "success")
+		Aurora:Notify("Toys", "Cleared " .. tostring(#toys) .. " toy(s).", 2.5, "ok")
 	end
 
 	local function deleteOldestToy(silent)
@@ -4759,7 +3801,7 @@ hCredits:AddCredit("3qr311", "Scripter")
 			if n < oldestNum then oldestNum = n; oldest = t end
 		end
 		safeFire("DestroyToy", oldest)
-		if not silent then Aurora:Notify("Oyuncaklar", "En eski oyuncak silindi: " .. oldest.Name, 2, "info") end
+		if not silent then Aurora:Notify("Toys", "Deleted oldest toy: " .. oldest.Name, 2, "info") end
 	end
 
 	local function bringMyToys()
@@ -4771,7 +3813,7 @@ hCredits:AddCredit("3qr311", "Scripter")
 			local cf = hrp.CFrame * CFrame.new(math.sin(a) * 8, 2.5, -6 - math.cos(a) * 4)
 			pcall(function() toy:PivotTo(cf) end)
 		end
-		Aurora:Notify("Oyuncaklar", tostring(#toys) .. " oyuncak önüne getirildi.", 2.5, "success")
+		Aurora:Notify("Toys", "Brought " .. tostring(#toys) .. " toy(s) in front of you.", 2.5, "ok")
 	end
 
 	task.spawn(function()
@@ -4788,91 +3830,394 @@ hCredits:AddCredit("3qr311", "Scripter")
 		end
 	end)
 
-	sc4Connect(LocalPlayer.CharacterAdded, function()
-		task.wait(0.8)
-		if sc4Unloaded then return end
-		releaseAllHovered(true)
-		if cfg.fly then setFly(true) end
-	end)
-
 	-- ============================================================
-	-- AURORA X SEKMELERİ (SC4 ÖZELLİKLERİ)
+	-- AURORA X TABS (EXACT AURAX_MAIN ORDER: ENABLE TOGGLE -> KEYBIND / MOBILE BUTTON -> OPTIONS -> SLIDERS -> ACTIONS)
 	-- ============================================================
 
-	local GrabTab = Window:AddTab("Grab & Anim", "o")
-	local gSec1 = GrabTab:AddSection("Normal Grab & Süper Fırlat")
-	gSec1:AddToggle("Süper Fırlat (Sağ Tık)", cfg.superThrow, function(v) cfg.superThrow = v end)
-	gSec1:AddButton("Tutulanı Fırlat (Mobil / Buton)", function()
-		local part = st.grabbedPart
-		if part then applyThrowToPart(part) else Aurora:Notify("Fırlat", "Önce bir şey tut!", 2, "warn") end
+	local keyBinds = {
+		grabAnim = { kind = "key", value = Enum.KeyCode.V },
+		meteor = { kind = "key", value = Enum.KeyCode.M },
+		hover = { kind = "key", value = Enum.KeyCode.H },
+		autoFling = { kind = "key", value = Enum.KeyCode.F },
+		flingOnce = { kind = "key", value = Enum.KeyCode.X },
+		autoSpin = { kind = "key", value = Enum.KeyCode.B },
+		toyShape = { kind = "key", value = Enum.KeyCode.J },
+		fly = { kind = "key", value = Enum.KeyCode.G },
+		noclip = { kind = "key", value = Enum.KeyCode.N },
+	}
+	local keySkipUntil = 0
+	local toggleRefs = {}
+
+	-- Aurora X style draggable floating mobile buttons (replaces keyboard keybinds on touch devices)
+	local mobileFloatBtns = {}
+	local mobileBtnSize = 48
+	local function createMobileFloatBtn(id, shortText, slotIdx, isToggle, getter, onTap)
+		local vp = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(900, 420)
+		local col = math.floor((slotIdx - 1) / 4)
+		local row = (slotIdx - 1) % 4
+		local defaultPos = UDim2.fromOffset(
+			math.clamp(vp.X - 52 - col * 58, 30, math.max(30, vp.X - 30)),
+			math.clamp(82 + row * 58, 40, math.max(80, vp.Y - 40))
+		)
+		local b = new("TextButton", {
+			Name = "AuroraSC4_" .. id,
+			Text = "",
+			AutoButtonColor = false,
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Size = UDim2.fromOffset(mobileBtnSize, mobileBtnSize),
+			Position = defaultPos,
+			BackgroundColor3 = T.card,
+			BackgroundTransparency = 0.12,
+			BorderSizePixel = 0,
+			Visible = false,
+			ZIndex = 44,
+		}, { corner(mobileBtnSize / 2) })
+		local bs = stroke(T.line, 2, 0.15)
+		bs.Parent = b
+		local lbl = label({
+			Text = shortText,
+			Font = Enum.Font.GothamBlack,
+			TextSize = 11,
+			TextColor3 = T.text,
+			TextXAlignment = Enum.TextXAlignment.Center,
+			Size = UDim2.fromScale(1, 1),
+			ZIndex = 45,
+		})
+		lbl.Parent = b
+		b.Parent = gui
+
+		local function paintMob()
+			local on = isToggle and getter and getter() == true
+			bs.Color = on and accent or T.line
+			lbl.TextColor3 = on and accent or T.text
+		end
+		onAccent(function() paintMob() end)
+		onThemeChange(function(k, c)
+			if k == "card" then b.BackgroundColor3 = c
+			elseif k == "line" or k == "text" then paintMob() end
+		end)
+
+		local activeInput, dragged, startIn, startPos = nil, false, nil, Vector2.zero
+		b.InputBegan:Connect(function(i)
+			if activeInput then return end
+			if i.UserInputType ~= Enum.UserInputType.MouseButton1 and i.UserInputType ~= Enum.UserInputType.Touch then return end
+			activeInput, dragged, startIn = i, false, i.Position
+			startPos = Vector2.new(b.Position.X.Offset, b.Position.Y.Offset)
+		end)
+		sc4Connect(UserInputService.InputChanged, function(i)
+			if not activeInput or i ~= activeInput then return end
+			if i.UserInputType ~= Enum.UserInputType.MouseMovement and i.UserInputType ~= Enum.UserInputType.Touch then return end
+			local d = i.Position - startIn
+			if d.Magnitude > 10 then dragged = true end
+			if dragged then
+				local v = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(900, 420)
+				local nx = math.clamp(startPos.X + d.X, 26, math.max(26, v.X - 26))
+				local ny = math.clamp(startPos.Y + d.Y, 26, math.max(26, v.Y - 26))
+				b.Position = UDim2.fromOffset(nx, ny)
+			end
+		end)
+		sc4Connect(UserInputService.InputEnded, function(i)
+			if not activeInput or i ~= activeInput then return end
+			activeInput = nil
+			if not dragged then
+				pcall(onTap)
+				paintMob()
+			end
+		end)
+
+		local rec = { btn = b, defaultPos = defaultPos, paint = paintMob }
+		mobileFloatBtns[id] = rec
+		return rec
+	end
+
+	local function addKeyOrMobile(sec, keyTitle, keyId, shortLabel, slotIdx, isToggle, getter, onTap)
+		if not AIM_MOBILE then
+			sec:AddKeybind(keyTitle, keyBinds[keyId], function(b)
+				keyBinds[keyId] = b
+				keySkipUntil = os.clock() + 0.4
+			end)
+		else
+			local rec = createMobileFloatBtn(keyId, shortLabel, slotIdx, isToggle, getter, onTap)
+			sec:AddToggle(keyTitle .. " (Button)", false, function(on)
+				rec.btn.Visible = on
+				rec.paint()
+			end)
+		end
+	end
+
+	-- 2. GRAB TAB
+	local GrabTab = Window:AddTab("Grab", "o")
+	local gSec1 = GrabTab:AddSection("Super Throw & Spin")
+	gSec1:AddToggle("Super Throw (Right Click)", cfg.superThrow, function(v) cfg.superThrow = v end)
+	if AIM_MOBILE then
+		addKeyOrMobile(gSec1, "Super Throw", "superThrowBtn", "TRW", 10, false, nil, function()
+			if st.grabbedPart then
+				applyThrowToPart(st.grabbedPart)
+			else
+				Aurora:Notify("Super Throw", "Grab something first!", 1.5, "warn")
+			end
+		end)
+	end
+	gSec1:AddToggle("Spin While Holding", cfg.spinHold, function(v) cfg.spinHold = v end)
+	gSec1:AddToggle("Spin On Throw", cfg.spinOnThrow, function(v) cfg.spinOnThrow = v end)
+	gSec1:AddToggle("Auto Extend Line", cfg.autoExtend, function(v) cfg.autoExtend = v end)
+	gSec1:AddToggle("Rainbow Beam (Local)", cfg.rainbowBeam, function(v) cfg.rainbowBeam = v end)
+	gSec1:AddToggle("Server Rainbow Beam", cfg.serverRainbow, function(v) cfg.serverRainbow = v end)
+	gSec1:AddDropdown("Throw Direction", { "Camera", "Upward", "Character" }, cfg.throwDirection, function(v) cfg.throwDirection = v end)
+	gSec1:AddDropdown("Spin Axis", { "Y", "X", "Z", "All" }, cfg.spinAxis, function(v) cfg.spinAxis = v end)
+	gSec1:AddSlider("Throw Multiplier", 1, 30, cfg.throwMultiplier, function(v) cfg.throwMultiplier = v end, 1)
+	gSec1:AddSlider("Max Throw Speed", 100, 5000, cfg.throwMaxSpeed, function(v) cfg.throwMaxSpeed = v end, 50)
+	gSec1:AddSlider("Upward Boost", 0, 1000, cfg.throwUpBoost, function(v) cfg.throwUpBoost = v end, 10)
+	gSec1:AddSlider("Spin Speed", 50, 1500, cfg.spinSpeed, function(v) cfg.spinSpeed = v end, 25)
+
+	local gSec2 = GrabTab:AddSection("Grab Animations")
+	gSec2:AddButton("Meteor Slam (Sky Launch + Drop)", meteorSlam)
+	toggleRefs.grabAnim = gSec2:AddToggle("Enable Grab Animation", cfg.grabAnimEnabled, function(v)
+		cfg.grabAnimEnabled = v
+		if mobileFloatBtns.grabAnim then mobileFloatBtns.grabAnim.paint() end
 	end)
-	gSec1:AddSlider("Fırlatma Çarpanı", 1, 30, cfg.throwMultiplier, function(v) cfg.throwMultiplier = v end, 1)
-	gSec1:AddSlider("Maksimum Hız", 100, 5000, cfg.throwMaxSpeed, function(v) cfg.throwMaxSpeed = v end, 50)
-	gSec1:AddSlider("Yukarı Destek", 0, 1000, cfg.throwUpBoost, function(v) cfg.throwUpBoost = v end, 10)
-	gSec1:AddDropdown("Fırlatma Yönü", { "Kamera", "Yukarı", "Karakter" }, cfg.throwDirection, function(v) cfg.throwDirection = v end)
-	gSec1:AddToggle("Tutarken Döndür (Spin)", cfg.spinHold, function(v) cfg.spinHold = v end)
-	gSec1:AddToggle("Fırlatırken Döndür", cfg.spinOnThrow, function(v) cfg.spinOnThrow = v end)
-	gSec1:AddSlider("Spin Hızı", 50, 1500, cfg.spinSpeed, function(v) cfg.spinSpeed = v end, 25)
-	gSec1:AddDropdown("Spin Ekseni", { "Y", "X", "Z", "Tümü" }, cfg.spinAxis, function(v) cfg.spinAxis = v end)
-	gSec1:AddToggle("Otomatik Uzat (Extend)", cfg.autoExtend, function(v) cfg.autoExtend = v end)
-	gSec1:AddToggle("Rainbow Beam (Yerel)", cfg.rainbowBeam, function(v) cfg.rainbowBeam = v end)
-	gSec1:AddToggle("Sunucu Rainbow Beam", cfg.serverRainbow, function(v) cfg.serverRainbow = v end)
+	addKeyOrMobile(gSec2, "Grab Animation Key", "grabAnim", "ANIM", 1, true, function() return cfg.grabAnimEnabled end, function()
+		if toggleRefs.grabAnim then toggleRefs.grabAnim.Set(not cfg.grabAnimEnabled) end
+	end)
+	addKeyOrMobile(gSec2, "Meteor Slam Key", "meteor", "MTR", 2, false, nil, meteorSlam)
+	gSec2:AddDropdown("Animation Mode", { "Ball Bounce", "Side Pendulum", "Tornado Vortex", "Overhead Helicopter", "Figure-8" }, cfg.grabAnimMode, function(v) cfg.grabAnimMode = v end)
+	gSec2:AddSlider("Animation Speed", 1, 20, cfg.grabAnimSpeed, function(v) cfg.grabAnimSpeed = v end, 0.5)
+	gSec2:AddSlider("Motion Radius", 3, 30, cfg.grabAnimRadius, function(v) cfg.grabAnimRadius = v end, 1)
 
-	local gSec2 = GrabTab:AddSection("Grab Animasyonları (Top Oynatma)")
-	gSec2:AddToggle("Grab Animasyonu", cfg.grabAnimEnabled, function(v) cfg.grabAnimEnabled = v end)
-	gSec2:AddDropdown("Animasyon Modu", { "Top Sektirme", "Sağa-Sola Sarkaç", "Tornado / Girdap", "Baş Üstü Pervane", "Sekiz Çizme (∞)" }, cfg.grabAnimMode, function(v) cfg.grabAnimMode = v end)
-	gSec2:AddSlider("Animasyon Hızı", 1, 20, cfg.grabAnimSpeed, function(v) cfg.grabAnimSpeed = v end, 0.5)
-	gSec2:AddSlider("Hareket Genişliği", 3, 30, cfg.grabAnimRadius, function(v) cfg.grabAnimRadius = v end, 1)
-	gSec2:AddButton("Meteor Atışı (Yukarı + Yere Çak)", meteorSlam)
-
-	local gSec3 = GrabTab:AddSection("Hover & Oyuncak Formasyonları")
-	gSec3:AddToggle("Hover / Havada Sabitle", cfg.hoverGrab, function(v)
+	local gSec3 = GrabTab:AddSection("Hover & Toy Formations")
+	gSec3:AddButton("Release All Frozen", function() releaseAllHovered(false) end)
+	toggleRefs.hover = gSec3:AddToggle("Hover / Mid-Air Freeze", cfg.hoverGrab, function(v)
 		cfg.hoverGrab = v
 		if not v then releaseAllHovered(true) end
+		if mobileFloatBtns.hover then mobileFloatBtns.hover.paint() end
 	end)
-	gSec3:AddButton("Sabitlenenleri Bırak", function() releaseAllHovered(false) end)
-	gSec3:AddToggle("Oyuncak Yörüngesi (Orbit)", cfg.orbitToys, function(v) cfg.orbitToys = v end)
-	gSec3:AddSlider("Orbit Yarıçapı", 4, 45, cfg.orbitRadius, function(v) cfg.orbitRadius = v end, 1)
-	gSec3:AddSlider("Orbit Hızı", 0.5, 12, cfg.orbitSpeed, function(v) cfg.orbitSpeed = v end, 0.5)
-	gSec3:AddToggle("Kara Delik (Toy Vortex)", cfg.toyBlackHole, function(v) cfg.toyBlackHole = v end)
-	gSec3:AddToggle("Koruma Kalkanı (Toy Shield)", cfg.toyShield, function(v) cfg.toyShield = v end)
+	gSec3:AddToggle("Toy Orbit", cfg.orbitToys, function(v) cfg.orbitToys = v end)
+	gSec3:AddToggle("Black Hole (Toy Vortex)", cfg.toyBlackHole, function(v) cfg.toyBlackHole = v end)
+	gSec3:AddToggle("Shield Wall (Toy Shield)", cfg.toyShield, function(v) cfg.toyShield = v end)
+	addKeyOrMobile(gSec3, "Hover Freeze Key", "hover", "HVR", 3, true, function() return cfg.hoverGrab end, function()
+		if toggleRefs.hover then toggleRefs.hover.Set(not cfg.hoverGrab) end
+	end)
+	gSec3:AddSlider("Orbit Radius", 4, 45, cfg.orbitRadius, function(v) cfg.orbitRadius = v end, 1)
+	gSec3:AddSlider("Orbit Speed", 0.5, 12, cfg.orbitSpeed, function(v) cfg.orbitSpeed = v end, 0.5)
 
-	local CombatTab = Window:AddTab("Savaş", "o")
-	local cSec1 = CombatTab:AddSection("Oto Fırlatma (Oto Buton)")
-	cSec1:AddToggle("Oto Fırlatma (Sürekli Döngü)", cfg.autoFlingEnabled, function(v) cfg.autoFlingEnabled = v end)
-	cSec1:AddDropdown("Hedef Modu", { "Tüm Oyuncular", "En Yakın Oyuncu" }, cfg.autoFlingMode, function(v) cfg.autoFlingMode = v end)
-	cSec1:AddSlider("Oto Fırlatma Gücü", 200, 4500, cfg.autoFlingPower, function(v) cfg.autoFlingPower = v end, 100)
-	cSec1:AddSlider("Bekleme Süresi (sn)", 0.2, 3, cfg.autoFlingDelay, function(v) cfg.autoFlingDelay = v end, 0.1)
-	cSec1:AddButton("Hemen Fırlat (Tek Sefer)", autoFlingOnce)
-	cSec1:AddButton("Oto Fırlatmayı Durdur", function()
+	-- 3. COMBAT TAB
+	local CombatTab = Window:AddTab("Combat", "o")
+	local cSec1 = CombatTab:AddSection("Auto Fling")
+	cSec1:AddButton("Fling Nearest Now", autoFlingOnce)
+	cSec1:AddButton("Stop Auto Fling", function()
 		cfg.autoFlingEnabled = false
-		Aurora:Notify("Oto Fırlat", "Durduruldu.", 2, "warn")
+		if toggleRefs.autoFling then toggleRefs.autoFling.Set(false) end
+		Aurora:Notify("Auto Fling", "Stopped.", 2, "warn")
+	end)
+	toggleRefs.autoFling = cSec1:AddToggle("Auto Fling (Loop)", cfg.autoFlingEnabled, function(v)
+		cfg.autoFlingEnabled = v
+		if mobileFloatBtns.autoFling then mobileFloatBtns.autoFling.paint() end
+	end)
+	addKeyOrMobile(cSec1, "Auto Fling Key", "autoFling", "FLG", 4, true, function() return cfg.autoFlingEnabled end, function()
+		if toggleRefs.autoFling then toggleRefs.autoFling.Set(not cfg.autoFlingEnabled) end
+	end)
+	addKeyOrMobile(cSec1, "Fling Nearest Key", "flingOnce", "1X", 5, false, nil, autoFlingOnce)
+	cSec1:AddDropdown("Target Mode", { "All Players", "Selected Player", "Nearest Player" }, cfg.autoFlingMode, function(v) cfg.autoFlingMode = v end)
+	cSec1:AddSlider("Fling Power", 200, 4500, cfg.autoFlingPower, function(v) cfg.autoFlingPower = v end, 100)
+	cSec1:AddSlider("Loop Delay (s)", 0, 3, cfg.autoFlingDelay, function(v) cfg.autoFlingDelay = v end, 0.05)
+
+	local cPlayersSec = CombatTab:AddSection("Target Players (Single Select)")
+	local refreshFlingPlayers
+	cPlayersSec:AddButton("Clear Selection", function()
+		selectedFlingPlayer = nil
+		if refreshFlingPlayers then refreshFlingPlayers() end
+		Aurora:Notify("Combat", "Cleared selected target.", 2, "info")
+	end)
+	cPlayersSec:AddTextbox("Search Player", "type name...", function(txt)
+		flingFilter = string.lower(txt or "")
+		if refreshFlingPlayers then refreshFlingPlayers() end
+	end)
+	local flingListBox = cPlayersSec:AddContainer()
+	local flingEntries = {}
+	local flingAccentBtns = {}
+	local lastPlayerSignature = ""
+	onAccent(function(a)
+		for i = #flingAccentBtns, 1, -1 do
+			local o = flingAccentBtns[i]
+			if o and o.Parent then o.BackgroundColor3 = a else table.remove(flingAccentBtns, i) end
+		end
+		for _, e in ipairs(flingEntries) do
+			if e.plr and selectedFlingPlayer == e.plr and e.st and e.st.Parent then e.st.Color = a end
+		end
+	end)
+	onThemeChange(function(k, c)
+		for _, e in ipairs(flingEntries) do
+			if e.frame and e.frame.Parent then
+				if k == "row2" then e.frame.BackgroundColor3 = c
+				elseif k == "line" and selectedFlingPlayer ~= e.plr and e.st then e.st.Color = c
+				elseif k == "text" and e.nameL then e.nameL.TextColor3 = c
+				elseif k == "dim" and e.subL then e.subL.TextColor3 = c
+				elseif k == "sub" and e.dist then e.dist.TextColor3 = c end
+			end
+		end
+	end)
+	local function paintFlingSel()
+		for _, e in ipairs(flingEntries) do
+			if e.plr and e.st and e.st.Parent then
+				local on = (selectedFlingPlayer == e.plr)
+				tween(e.st, 0.18, { Color = on and accent or T.line, Transparency = on and 0 or 0.5, Thickness = on and 2 or 1 })
+			end
+		end
+	end
+	refreshFlingPlayers = function()
+		for _, e in ipairs(flingEntries) do
+			if e.frame and e.frame.Parent then e.frame:Destroy() end
+		end
+		flingEntries = {}
+		local plist = {}
+		local sigParts = {}
+		for _, p in ipairs(Players:GetPlayers()) do
+			if p ~= LocalPlayer then
+				table.insert(sigParts, tostring(p.UserId))
+				local nm = string.lower(p.Name)
+				local dn = string.lower(p.DisplayName)
+				if flingFilter == "" or string.find(nm, flingFilter, 1, true) or string.find(dn, flingFilter, 1, true) then
+					table.insert(plist, p)
+				end
+			end
+		end
+		table.sort(sigParts)
+		lastPlayerSignature = table.concat(sigParts, ",")
+		table.sort(plist, function(a, b) return string.lower(a.DisplayName) < string.lower(b.DisplayName) end)
+		for n, p in ipairs(plist) do
+			local plrRef = p
+			local f = new("TextButton", { Text = "", Size = UDim2.new(1, 0, 0, 48), BackgroundColor3 = T.row2, BackgroundTransparency = 0.3, AutoButtonColor = false, BorderSizePixel = 0, LayoutOrder = n }, { corner(10) })
+			local stStroke = stroke(T.line, 1, 0.5)
+			stStroke.Parent = f
+			new("ImageLabel", { Size = UDim2.fromOffset(34, 34), Position = UDim2.fromOffset(8, 7), BackgroundColor3 = T.bg1, BorderSizePixel = 0, Image = "rbxthumb://type=AvatarHeadShot&id=" .. tostring(p.UserId) .. "&w=60&h=60" }, { corner(17) }).Parent = f
+			local nameL = label({ Text = p.DisplayName, Font = Enum.Font.GothamBold, TextSize = 13, Size = UDim2.new(1, -180, 0, 18), Position = UDim2.fromOffset(52, 7) })
+			nameL.TextTruncate = Enum.TextTruncate.AtEnd
+			nameL.Parent = f
+			local subL = label({ Text = "@" .. p.Name, TextSize = 11, TextColor3 = T.dim, Size = UDim2.new(1, -180, 0, 14), Position = UDim2.fromOffset(52, 26) })
+			subL.TextTruncate = Enum.TextTruncate.AtEnd
+			subL.Parent = f
+			local distL = label({ Text = "--", TextSize = 11, TextColor3 = T.sub, TextXAlignment = Enum.TextXAlignment.Right, Size = UDim2.fromOffset(64, 18), Position = UDim2.new(1, -134, 0, 15) })
+			distL.Parent = f
+			local flingBtn = new("TextButton", { Text = "Fling", Size = UDim2.fromOffset(54, 28), Position = UDim2.new(1, -62, 0.5, -14), BackgroundColor3 = accent, Font = Enum.Font.GothamBlack, TextSize = 11, TextColor3 = Color3.new(1, 1, 1), AutoButtonColor = false, BorderSizePixel = 0 }, { corner(8) })
+			flingBtn.Parent = f
+			table.insert(flingAccentBtns, flingBtn)
+			f.MouseButton1Click:Connect(function()
+				if selectedFlingPlayer == plrRef then
+					selectedFlingPlayer = nil
+				else
+					selectedFlingPlayer = plrRef
+				end
+				paintFlingSel()
+			end)
+			flingBtn.MouseButton1Click:Connect(function()
+				selectedFlingPlayer = plrRef
+				paintFlingSel()
+				flingSingleTargetNow(plrRef)
+			end)
+			f.Parent = flingListBox
+			table.insert(flingEntries, { plr = plrRef, frame = f, st = stStroke, dist = distL, nameL = nameL, subL = subL })
+		end
+		paintFlingSel()
+	end
+	refreshFlingPlayers()
+	sc4Connect(Players.PlayerAdded, function() task.delay(0.2, refreshFlingPlayers) end)
+	sc4Connect(Players.PlayerRemoving, function(p)
+		if selectedFlingPlayer == p then selectedFlingPlayer = nil end
+		task.defer(refreshFlingPlayers)
+	end)
+	task.spawn(function()
+		while not sc4Unloaded do
+			local curSig = {}
+			for _, p in ipairs(Players:GetPlayers()) do
+				if p ~= LocalPlayer then table.insert(curSig, tostring(p.UserId)) end
+			end
+			table.sort(curSig)
+			if table.concat(curSig, ",") ~= lastPlayerSignature then
+				refreshFlingPlayers()
+			end
+			local _, _, myHRP = getChar()
+			if myHRP then
+				for _, e in ipairs(flingEntries) do
+					if e.plr and e.dist and e.dist.Parent then
+						local pHRP = e.plr.Character and e.plr.Character:FindFirstChild("HumanoidRootPart")
+						local inPlot = isPlayerInPlot(e.plr)
+						local dTxt = pHRP and (tostring(math.floor((pHRP.Position - myHRP.Position).Magnitude)) .. "m") or "--"
+						e.dist.Text = inPlot and ("[PLOT] " .. dTxt) or dTxt
+					end
+				end
+			end
+			task.wait(0.8)
+		end
 	end)
 
-	local cSec2 = CombatTab:AddSection("Turbo Kurtulma & Savunma")
-	cSec2:AddToggle("Turbo Otomatik Struggle", cfg.autoStruggle, function(v) cfg.autoStruggle = v end)
-	cSec2:AddSlider("Struggle Aralığı (sn)", 0.01, 1, cfg.autoStruggleInterval, function(v) cfg.autoStruggleInterval = v end, 0.01)
-	cSec2:AddButton("Manuel Struggle Gönder", function() safeFire("Struggle") end)
-	cSec2:AddToggle("Anti-Ragdoll", cfg.antiRagdoll, function(v) cfg.antiRagdoll = v end)
-	cSec2:AddToggle("Anti-Fling", cfg.antiFling, function(v) cfg.antiFling = v end)
-	cSec2:AddSlider("Anti-Fling Hız Eşiği", 100, 1000, cfg.antiFlingThreshold, function(v) cfg.antiFlingThreshold = v end, 25)
-	cSec2:AddToggle("Ragdoll Blur Kapat", cfg.noRagdollBlur, function(v) cfg.noRagdollBlur = v end)
+	local cSec2 = CombatTab:AddSection("Turbo Struggle")
+	cSec2:AddButton("Send Manual Struggle", function() safeFire("Struggle") end)
+	cSec2:AddToggle("Turbo Auto Struggle", cfg.autoStruggle, function(v) cfg.autoStruggle = v end)
+	cSec2:AddToggle("Disable Ragdoll Blur", cfg.noRagdollBlur, function(v) cfg.noRagdollBlur = v end)
+	cSec2:AddSlider("Struggle Interval (s)", 0.01, 1, cfg.autoStruggleInterval, function(v) cfg.autoStruggleInterval = v end, 0.01)
 
-	local ToysTab = Window:AddTab("Oyuncaklar", "o")
-	local tSec1 = ToysTab:AddSection("Spawn Otomatik Döndür (Etrafımda)")
-	tSec1:AddToggle("Spawn Edince Otomatik Döndür", cfg.autoSpinSpawned, function(v) cfg.autoSpinSpawned = v end)
-	tSec1:AddToggle("Etrafımda Dön (Yörünge)", cfg.autoSpinAroundMe, function(v) cfg.autoSpinAroundMe = v end)
-	tSec1:AddSlider("Etrafımda Uzaklık", 4, 50, cfg.autoSpinRadius, function(v) cfg.autoSpinRadius = v end, 1)
-	tSec1:AddSlider("Etrafımda Yükseklik", -5, 25, cfg.autoSpinHeight, function(v) cfg.autoSpinHeight = v end, 1)
-	tSec1:AddSlider("Yörünge Hızı", 0.5, 15, cfg.autoSpinOrbitSpeed, function(v) cfg.autoSpinOrbitSpeed = v end, 0.5)
-	tSec1:AddToggle("Dönerken Havada Dalgalan", cfg.autoSpinFloat, function(v) cfg.autoSpinFloat = v end)
-	tSec1:AddSlider("Kendi Dönme Hızı", 5, 150, cfg.autoSpinSpeed, function(v) cfg.autoSpinSpeed = v end, 5)
+	-- 4. TOYS TAB
+	local ToysTab = Window:AddTab("Toys", "o")
+	local tSec1 = ToysTab:AddSection("Auto Spin Spawned Toys")
+	toggleRefs.autoSpin = tSec1:AddToggle("Auto Spin On Spawn", cfg.autoSpinSpawned, function(v)
+		cfg.autoSpinSpawned = v
+		if mobileFloatBtns.autoSpin then mobileFloatBtns.autoSpin.paint() end
+	end)
+	tSec1:AddToggle("Orbit Around Me", cfg.autoSpinAroundMe, function(v) cfg.autoSpinAroundMe = v end)
+	tSec1:AddToggle("Float Wave", cfg.autoSpinFloat, function(v) cfg.autoSpinFloat = v end)
+	addKeyOrMobile(tSec1, "Auto Spin Key", "autoSpin", "SPN", 6, true, function() return cfg.autoSpinSpawned end, function()
+		if toggleRefs.autoSpin then toggleRefs.autoSpin.Set(not cfg.autoSpinSpawned) end
+	end)
+	tSec1:AddSlider("Orbit Distance", 4, 50, cfg.autoSpinRadius, function(v) cfg.autoSpinRadius = v end, 1)
+	tSec1:AddSlider("Orbit Height", -5, 25, cfg.autoSpinHeight, function(v) cfg.autoSpinHeight = v end, 1)
+	tSec1:AddSlider("Orbit Speed", 0.5, 15, cfg.autoSpinOrbitSpeed, function(v) cfg.autoSpinOrbitSpeed = v end, 0.5)
+	tSec1:AddSlider("Self Spin Speed", 5, 150, cfg.autoSpinSpeed, function(v) cfg.autoSpinSpeed = v end, 5)
 
-	local tSec2 = ToysTab:AddSection("Spawn Yönetimi & Hızlı Spawner")
-	tSec2:AddToggle("Otomatik Limit Boşaltıcı", cfg.autoClearOldestToy, function(v) cfg.autoClearOldestToy = v end)
-	tSec2:AddButton("Tüm Oyuncaklarımı Sil", clearAllToys)
-	tSec2:AddButton("En Eski Oyuncağı Sil", function() deleteOldestToy(false) end)
-	tSec2:AddButton("Oyuncaklarımı Yanıma Çek", bringMyToys)
+	local tShapeSec = ToysTab:AddSection("Toy Shapes & Formations (Wings / Heart / Line)")
+	toggleRefs.toyShape = tShapeSec:AddToggle("Enable Toy Shape", cfg.toyShapeEnabled, function(v)
+		cfg.toyShapeEnabled = v
+		if not v then st.shapeLockedCF = nil end
+		if mobileFloatBtns.toyShape then mobileFloatBtns.toyShape.paint() end
+	end)
+	tShapeSec:AddToggle("Follow Character", cfg.toyShapeFollow, function(v)
+		cfg.toyShapeFollow = v
+		if v then st.shapeLockedCF = nil end
+	end)
+	addKeyOrMobile(tShapeSec, "Toy Shape Key", "toyShape", "SHP", 9, true, function() return cfg.toyShapeEnabled end, function()
+		if toggleRefs.toyShape then toggleRefs.toyShape.Set(not cfg.toyShapeEnabled) end
+	end)
+	tShapeSec:AddDropdown("Shape Mode", { "Angel Wings", "Line / Bridge", "Heart", "Crown / Halo", "Star", "Wall / Grid", "Tower / Pillar" }, cfg.toyShapeMode, function(v) cfg.toyShapeMode = v end)
+	tShapeSec:AddSlider("Spacing / Size", 1.5, 20, cfg.toyShapeSpacing, function(v) cfg.toyShapeSpacing = v end, 0.5)
+	tShapeSec:AddSlider("Height Offset", -5, 30, cfg.toyShapeHeight, function(v) cfg.toyShapeHeight = v end, 1)
+	tShapeSec:AddSlider("Distance Offset", -20, 30, cfg.toyShapeDistance, function(v) cfg.toyShapeDistance = v end, 1)
+	tShapeSec:AddLabel("Formation spacing & look vary depending on each toy's size.")
+
+	local tSec2 = ToysTab:AddSection("Toy Manager & Quick Spawner")
+	local selectedToyLabel
+	local function spawnToyByName(toyName)
+		if not toyName or toyName == "" then
+			Aurora:Notify("Spawn", "Select a toy first!", 2, "warn")
+			return
+		end
+		local cam = workspace.CurrentCamera
+		local rot = workspace:FindFirstChild("RotateOrientPart")
+		local ori = rot and rot.Orientation or Vector3.zero
+		local ok = safeInvoke("SpawnToyRemoteFunction", toyName, cam and cam.CFrame or CFrame.new(), ori)
+		Aurora:Notify("Spawn", ok and ("Requested " .. toyName) or "Spawn failed.", 2, ok and "ok" or "warn")
+	end
+
+	tSec2:AddButton("Spawn Selected Toy", function()
+		spawnToyByName(st.selectedToy)
+	end)
+	tSec2:AddButton("Buy Selected Toy", function()
+		if not st.selectedToy then return end
+		local ok, res = safeInvoke("BuyToyRemoteFunction", st.selectedToy)
+		Aurora:Notify("Buy Toy", ok and tostring(res) or "Purchase failed.", 2.5, "info")
+	end)
+	tSec2:AddButton("Bring My Toys", bringMyToys)
+	tSec2:AddButton("Delete Oldest Toy", function() deleteOldestToy(false) end)
+	tSec2:AddButton("Clear All My Toys", clearAllToys)
+	tSec2:AddToggle("Auto Clear Oldest (Limit)", cfg.autoClearOldestToy, function(v) cfg.autoClearOldestToy = v end)
 
 	local toyList = {}
 	pcall(function()
@@ -4880,40 +4225,220 @@ hCredits:AddCredit("3qr311", "Scripter")
 		local mtd = mt and mt:FindFirstChild("MenuToysData")
 		if mtd then
 			local mod = require(mtd)
-			if mod and mod.GetAllToysSortedByName then
-				toyList = mod.GetAllToysSortedByName()
+			if mod and mod.GetAllToysSortedByName then toyList = mod.GetAllToysSortedByName() end
+		end
+	end)
+	if #toyList == 0 then toyList = { "BombMissile", "PalletLightBrown", "BallSnowball" } end
+	st.selectedToy = toyList[1]
+
+	local toyFilter = ""
+	local refreshToyList
+	local toyListOpen = false
+	local toyScrollHost
+	local toyDropArrow
+
+	local function setToyListOpen(open)
+		toyListOpen = open and true or false
+		if toyScrollHost then toyScrollHost.Visible = toyListOpen end
+		if toyDropArrow then toyDropArrow.Text = toyListOpen and "^" or "v" end
+	end
+
+	tSec2:AddTextbox("Search Toy", "type toy name...", function(txt)
+		toyFilter = string.lower(txt or "")
+		if toyFilter ~= "" and not toyListOpen then setToyListOpen(true) end
+		if refreshToyList then refreshToyList() end
+	end)
+
+	local toyDropHost = tSec2:AddContainer()
+	local toyDropBtn = new("TextButton", {
+		Text = "",
+		Size = UDim2.new(1, 0, 0, 34),
+		BackgroundColor3 = T.row,
+		BackgroundTransparency = 0.25,
+		AutoButtonColor = false,
+		BorderSizePixel = 0,
+	}, { corner(8) })
+	local toyDropStroke = stroke(T.line, 1, 0.5)
+	toyDropStroke.Parent = toyDropBtn
+	local toyDropLbl = label({
+		Text = "Selected Toy: " .. tostring(st.selectedToy),
+		Font = Enum.Font.GothamMedium,
+		TextSize = 12,
+		TextColor3 = T.text,
+		Size = UDim2.new(1, -40, 1, 0),
+		Position = UDim2.fromOffset(12, 0),
+	})
+	toyDropLbl.TextTruncate = Enum.TextTruncate.AtEnd
+	toyDropLbl.Parent = toyDropBtn
+	toyDropArrow = label({
+		Text = "v",
+		Font = Enum.Font.GothamBold,
+		TextSize = 12,
+		TextColor3 = T.sub,
+		Size = UDim2.fromOffset(24, 34),
+		Position = UDim2.new(1, -28, 0, 0),
+		TextXAlignment = Enum.TextXAlignment.Center,
+	})
+	toyDropArrow.Parent = toyDropBtn
+	toyDropBtn.Parent = toyDropHost
+	toyDropBtn.MouseButton1Click:Connect(function()
+		setToyListOpen(not toyListOpen)
+	end)
+	onThemeChange(function(k, c)
+		if k == "row" then toyDropBtn.BackgroundColor3 = c
+		elseif k == "line" then toyDropStroke.Color = c
+		elseif k == "text" then toyDropLbl.TextColor3 = c
+		elseif k == "sub" then toyDropArrow.TextColor3 = c end
+	end)
+	selectedToyLabel = {
+		Set = function(selfOrVal, val)
+			local txt = (val ~= nil) and val or selfOrVal
+			toyDropLbl.Text = tostring(txt or "")
+		end,
+	}
+
+	toyScrollHost = tSec2:AddContainer()
+	toyScrollHost.Visible = false
+	local toyScroll = new("ScrollingFrame", {
+		Size = UDim2.new(1, 0, 0, 210),
+		BackgroundColor3 = T.bg1,
+		BackgroundTransparency = 0.35,
+		BorderSizePixel = 0,
+		ScrollBarThickness = 3,
+		ScrollBarImageColor3 = T.scroll,
+		CanvasSize = UDim2.new(),
+		AutomaticCanvasSize = Enum.AutomaticSize.Y,
+	}, { corner(10), pad(6, 6, 6, 6), list(5) })
+	toyScroll.Parent = toyScrollHost
+	onThemeChange(function(k, c)
+		if k == "bg1" then toyScroll.BackgroundColor3 = c
+		elseif k == "scroll" then toyScroll.ScrollBarImageColor3 = c end
+	end)
+
+	local toyEntries = {}
+	local toyAccentBtns = {}
+	onAccent(function(a)
+		for i = #toyAccentBtns, 1, -1 do
+			local o = toyAccentBtns[i]
+			if o and o.Parent then o.BackgroundColor3 = a else table.remove(toyAccentBtns, i) end
+		end
+		for _, e in ipairs(toyEntries) do
+			if e.name == st.selectedToy and e.st and e.st.Parent then e.st.Color = a end
+		end
+	end)
+	onThemeChange(function(k, c)
+		for _, e in ipairs(toyEntries) do
+			if e.frame and e.frame.Parent then
+				if k == "row2" then e.frame.BackgroundColor3 = c
+				elseif k == "line" and e.name ~= st.selectedToy and e.st then e.st.Color = c
+				elseif k == "text" and e.lbl then e.lbl.TextColor3 = c end
 			end
 		end
 	end)
-	do
-		local clean = {}
-		if type(toyList) == "table" then
-			for _, v in ipairs(toyList) do if type(v) == "string" then clean[#clean + 1] = v end end
-		end
-		toyList = clean
-	end
-	if #toyList == 0 then toyList = { "BombMissile", "PalletLightBrown", "BallSnowball" } end
-	st.selectedToy = toyList[1]
-	tSec2:AddDropdown("Oyuncak Seç", toyList, st.selectedToy, function(v) st.selectedToy = v end)
-	tSec2:AddTextbox("Oyuncak Adı Yaz (Özel)", "Örn: BombMissile", function(txt)
-		if txt and txt ~= "" then st.selectedToy = txt end
-	end)
-	tSec2:AddButton("Seçili Oyuncağı Spawn Et", function()
-		if not st.selectedToy then return end
-		local cam = workspace.CurrentCamera
-		local rot = workspace:FindFirstChild("RotateOrientPart")
-		local ori = rot and rot.Orientation or Vector3.zero
-		local ok = safeInvoke("SpawnToyRemoteFunction", st.selectedToy, cam and cam.CFrame or CFrame.new(), ori)
-		Aurora:Notify("Spawn", ok and (st.selectedToy .. " spawn istendi.") or "Spawn başarısız.", 2, ok and "success" or "warn")
-	end)
-	tSec2:AddButton("Seçili Oyuncağı Satın Al", function()
-		if not st.selectedToy then return end
-		local ok, res = safeInvoke("BuyToyRemoteFunction", st.selectedToy)
-		Aurora:Notify("Satın Al", ok and tostring(res) or "Satın alma başarısız.", 2.5, "info")
-	end)
 
-	local MoveTab = Window:AddTab("Hareket", "o")
-	local mSec1 = MoveTab:AddSection("Hareket, Fly & Noclip")
+	local function paintToySel()
+		if selectedToyLabel and selectedToyLabel.Set then
+			selectedToyLabel:Set("Selected Toy: " .. tostring(st.selectedToy or "None"))
+		end
+		for _, e in ipairs(toyEntries) do
+			if e.st and e.st.Parent then
+				local on = (e.name == st.selectedToy)
+				tween(e.st, 0.15, { Color = on and accent or T.line, Transparency = on and 0 or 0.5, Thickness = on and 2 or 1 })
+			end
+		end
+	end
+
+	refreshToyList = function()
+		for _, e in ipairs(toyEntries) do
+			if e.frame and e.frame.Parent then e.frame:Destroy() end
+		end
+		toyEntries = {}
+		local shown = 0
+		for _, name in ipairs(toyList) do
+			if toyFilter == "" or string.find(string.lower(name), toyFilter, 1, true) then
+				shown = shown + 1
+				if shown > 60 then break end
+				local toyName = name
+				local rowBtn = new("TextButton", {
+					Text = "",
+					Size = UDim2.new(1, 0, 0, 34),
+					BackgroundColor3 = T.row2,
+					BackgroundTransparency = 0.28,
+					AutoButtonColor = false,
+					BorderSizePixel = 0,
+					LayoutOrder = shown,
+				}, { corner(8) })
+				local stLine = stroke(T.line, 1, 0.5)
+				stLine.Parent = rowBtn
+				local lbl = label({
+					Text = toyName,
+					Font = Enum.Font.GothamMedium,
+					TextSize = 12,
+					TextColor3 = T.text,
+					Size = UDim2.new(1, -76, 1, 0),
+					Position = UDim2.fromOffset(10, 0),
+				})
+				lbl.TextTruncate = Enum.TextTruncate.AtEnd
+				lbl.Parent = rowBtn
+				local spBtn = new("TextButton", {
+					Text = "Spawn",
+					Size = UDim2.fromOffset(54, 24),
+					Position = UDim2.new(1, -60, 0.5, -12),
+					BackgroundColor3 = accent,
+					Font = Enum.Font.GothamBold,
+					TextSize = 11,
+					TextColor3 = Color3.new(1, 1, 1),
+					AutoButtonColor = false,
+					BorderSizePixel = 0,
+				}, { corner(6) })
+				spBtn.Parent = rowBtn
+				table.insert(toyAccentBtns, spBtn)
+				rowBtn.MouseButton1Click:Connect(function()
+					st.selectedToy = toyName
+					paintToySel()
+				end)
+				spBtn.MouseButton1Click:Connect(function()
+					st.selectedToy = toyName
+					paintToySel()
+					spawnToyByName(toyName)
+				end)
+				rowBtn.Parent = toyScroll
+				table.insert(toyEntries, { name = toyName, frame = rowBtn, st = stLine, lbl = lbl })
+			end
+		end
+		paintToySel()
+	end
+	refreshToyList()
+
+	-- 5. MOVEMENT TAB
+	local MoveTab = Window:AddTab("Movement", "o")
+	local mSec1 = MoveTab:AddSection("Player Movement, Fly & Noclip")
+	mSec1:AddButton("Reset Camera (First Person)", function()
+		local _, hum = getChar()
+		local cam = workspace.CurrentCamera
+		if cam and hum then cam.CameraType = Enum.CameraType.Custom; cam.CameraSubject = hum end
+		LocalPlayer.CameraMinZoomDistance = 0.5
+		LocalPlayer.CameraMaxZoomDistance = 0.5
+		Aurora:Notify("Camera", "Reset to default first-person camera.", 2, "ok")
+	end)
+	toggleRefs.fly = mSec1:AddToggle("Fly", cfg.fly, function(v)
+		setFly(v)
+		if mobileFloatBtns.fly then mobileFloatBtns.fly.paint() end
+	end)
+	toggleRefs.noclip = mSec1:AddToggle("Noclip", cfg.noclip, function(v)
+		setNoclip(v)
+		if mobileFloatBtns.noclip then mobileFloatBtns.noclip.paint() end
+	end)
+	mSec1:AddToggle("Infinite Jump", cfg.infiniteJump, function(v) cfg.infiniteJump = v end)
+	mSec1:AddToggle("Disable Camera Bobbing", cfg.noCameraBob, function(v) cfg.noCameraBob = v end)
+	mSec1:AddToggle("Lock Movement Stats", cfg.lockMovement, function(v) cfg.lockMovement = v end)
+	addKeyOrMobile(mSec1, "Fly Key", "fly", "FLY", 7, true, function() return cfg.fly end, function()
+		if toggleRefs.fly then toggleRefs.fly.Set(not cfg.fly) end
+	end)
+	addKeyOrMobile(mSec1, "Noclip Key", "noclip", "NCP", 8, true, function() return cfg.noclip end, function()
+		if toggleRefs.noclip then toggleRefs.noclip.Set(not cfg.noclip) end
+	end)
+	mSec1:AddSlider("Fly Speed", 20, 250, cfg.flySpeed, function(v) cfg.flySpeed = v end, 5)
 	mSec1:AddSlider("WalkSpeed", 16, 150, cfg.walkSpeed, function(v)
 		cfg.walkSpeed = v
 		local _, hum = getChar()
@@ -4929,72 +4454,104 @@ hCredits:AddCredit("3qr311", "Scripter")
 		local _, hum = getChar()
 		if hum then hum.HipHeight = v end
 	end, 0.5)
-	mSec1:AddToggle("Hareketi Kilitle", cfg.lockMovement, function(v) cfg.lockMovement = v end)
-	mSec1:AddToggle("Fly (Uçuş)", cfg.fly, setFly)
-	mSec1:AddSlider("Fly Hızı", 20, 250, cfg.flySpeed, function(v) cfg.flySpeed = v end, 5)
-	mSec1:AddToggle("Noclip (Duvarlardan Geç)", cfg.noclip, setNoclip)
-	mSec1:AddToggle("Sonsuz Zıplama", cfg.infiniteJump, function(v) cfg.infiniteJump = v end)
-	mSec1:AddToggle("Kamera Sarsıntısını Kapat", cfg.noCameraBob, function(v) cfg.noCameraBob = v end)
-	mSec1:AddSlider("FOV", 50, 120, cfg.fov, function(v)
+	mSec1:AddSlider("Field of View (FOV)", 50, 120, cfg.fov, function(v)
 		cfg.fov = v
 		if workspace.CurrentCamera then workspace.CurrentCamera.FieldOfView = v end
 	end, 1)
-	mSec1:AddButton("Kamerayı Sıfırla (1. Şahıs)", function()
-		local _, hum = getChar()
-		local cam = workspace.CurrentCamera
-		if cam and hum then cam.CameraType = Enum.CameraType.Custom; cam.CameraSubject = hum end
-		LocalPlayer.CameraMinZoomDistance = 0.5
-		LocalPlayer.CameraMaxZoomDistance = 0.5
-		Aurora:Notify("Kamera", "1. şahıs kameraya sıfırlandı.", 2, "success")
+
+	local mSec2 = MoveTab:AddSection("Slot Tracker")
+	mSec2:AddToggle("Slot Ready Notifier", cfg.slotNotifier, function(v) cfg.slotNotifier = v end)
+	slotLabelRef = mSec2:AddLabel("Slot Status: " .. st.slotTimeText)
+
+	-- 6. SERVER TAB (Anti-Fling & Anti-Ragdoll)
+	local ServerTab = Window:AddTab("Server", "o")
+	local sProt = ServerTab:AddSection("Protection")
+	sProt:AddToggle("Anti-Fling", cfg.antiFling, function(v) cfg.antiFling = v end)
+	sProt:AddToggle("Anti-Ragdoll", cfg.antiRagdoll, function(v) cfg.antiRagdoll = v end)
+	sProt:AddSlider("Anti-Fling Threshold", 100, 1000, cfg.antiFlingThreshold, function(v) cfg.antiFlingThreshold = v end, 25)
+
+	-- 7. VISUALS TAB (Custom Sky from AuraX_main)
+	local VisTab = Window:AddTab("Visuals", "o")
+	local v3 = VisTab:AddSection("Custom Sky")
+	SkyAPI.SetDetail(false)
+	SkyAPI.SetShooting(false)
+	SkyAPI.SetScreen(false)
+	SkyAPI.SetLightning(false)
+	SkyAPI.SetSound(false)
+	SkyAPI.SetThunder(false)
+	SkyAPI.SetParticles(false)
+	SkyAPI.SetTime(false)
+	v3:AddToggle("Sky Details (clouds / nebula)", false, function(on) SkyAPI.SetDetail(on) end)
+	v3:AddToggle("Shooting Stars", false, function(on) SkyAPI.SetShooting(on) end)
+	v3:AddToggle("Rain Screen Effects (drops / streaks)", false, function(on) SkyAPI.SetScreen(on) end)
+	v3:AddToggle("Lightning (Storm)", false, function(on) SkyAPI.SetLightning(on) end)
+	v3:AddToggle("Rain Sound", false, function(on) SkyAPI.SetSound(on) end)
+	v3:AddToggle("Thunder Sound", false, function(on) SkyAPI.SetThunder(on) end)
+	v3:AddToggle("Particles (petal / snow / ember)", false, function(on) SkyAPI.SetParticles(on) end)
+	v3:AddToggle("Apply Preset Time (day/night)", false, function(on) SkyAPI.SetTime(on) end)
+	v3:AddDropdown("Sky Preset", SkyAPI.Order, "Default", function(o)
+		SkyAPI.Set(o)
+		Aurora:Notify("Custom Sky", T_("Sky: ") .. tostring(o), 2.5)
+	end)
+	v3:AddSlider("Rain Volume (%)", 0, 100, 60, function(v) SkyAPI.SetVolume(v / 100) end, 5)
+	v3:AddSlider("Cloud Cover", 0, 1, 0.5, function(v) SkyAPI.Over("cover", v) end, 0.05)
+	v3:AddSlider("Particle Density", 0.2, 3, 1, function(v) SkyAPI.SetDensity(v) end, 0.1)
+	v3:AddSlider("Star Count", 0, 5000, 3000, function(v) SkyAPI.Over("stars", math.floor(v)) end, 100)
+	v3:AddSlider("Atmosphere Density", 0, 1, 0.3, function(v) SkyAPI.Over("dens", v) end, 0.05)
+	v3:AddSlider("Sky Time (hour)", 0, 24, 12, function(v) SkyAPI.SetClock(v) end, 0.5)
+	v3:AddColorPicker("Atmosphere Color", Color3.fromRGB(200, 200, 255), function(c) SkyAPI.Over("acol", c) end)
+	v3:AddColorPicker("Horizon Color", Color3.fromRGB(255, 150, 120), function(c) SkyAPI.Over("dec", c) end)
+	v3:AddButton("Reset Sky", function()
+		SkyAPI.Reset()
+		Aurora:Notify("Custom Sky", "Sky reset", 2.5)
 	end)
 
-	local mSec2 = MoveTab:AddSection("Slot Takip & Hızlı Işınlanma")
-	mSec2:AddToggle("Slot Hazır Bildirimi", cfg.slotNotifier, function(v) cfg.slotNotifier = v end)
-	slotLabelRef = mSec2:AddLabel("Slot Durumu: " .. st.slotTimeText)
-	mSec2:AddButton("Işınlan: Slots", function() tpTo("Slots") end)
-	mSec2:AddButton("Işınlan: Farm", function() tpTo("Farm") end)
-	mSec2:AddButton("Işınlan: Food", function() tpTo("Food") end)
-	mSec2:AddButton("Işınlan: Music", function() tpTo("Music") end)
-	mSec2:AddButton("Işınlan: Arsa (Plot)", function() tpTo("Plot") end)
-	mSec2:AddButton("Işınlan: Spawn", function() tpTo("Spawn") end)
+	if AIM_MOBILE then
+		local vMob = VisTab:AddSection("Mobile Floating Buttons")
+		vMob:AddButton("Reset Floating Button Positions", function()
+			for _, rec in pairs(mobileFloatBtns) do
+				if rec.btn and rec.btn.Parent then rec.btn.Position = rec.defaultPos end
+			end
+			Aurora:Notify("Mobile", "Floating button positions reset.", 2, "ok")
+		end)
+		vMob:AddSlider("Floating Button Size", 36, 84, mobileBtnSize, function(v)
+			mobileBtnSize = v
+			for _, rec in pairs(mobileFloatBtns) do
+				if rec.btn and rec.btn.Parent then
+					rec.btn.Size = UDim2.fromOffset(v, v)
+					local c = rec.btn:FindFirstChildOfClass("UICorner")
+					if c then c.CornerRadius = UDim.new(0, v / 2) end
+				end
+			end
+		end, 2)
+		vMob:AddLabel("Tap any floating button to toggle/run. Drag to reposition anywhere on screen.")
+	end
 
-	local VisTab = Window:AddTab("Görseller", "o")
-	local vSec1 = VisTab:AddSection("ESP, Işık & Efektler")
-	vSec1:AddToggle("Oyuncu ESP", cfg.esp, function(v) cfg.esp = v; if not v then clearESP() end end)
-	vSec1:AddSlider("ESP Mesafesi", 100, 2000, cfg.espDistance, function(v) cfg.espDistance = v end, 50)
-	local fbSaved
-	vSec1:AddToggle("Fullbright", cfg.fullbright, function(v)
-		cfg.fullbright = v
-		if v then
-			fbSaved = fbSaved or { Lighting.Brightness, Lighting.ClockTime, Lighting.GlobalShadows }
-			Lighting.Brightness = 3
-			Lighting.ClockTime = 14
-			Lighting.GlobalShadows = false
-		elseif fbSaved then
-			Lighting.Brightness, Lighting.ClockTime, Lighting.GlobalShadows = fbSaved[1], fbSaved[2], fbSaved[3]
-			fbSaved = nil
-		end
-	end)
-	vSec1:AddToggle("Waypoint'leri Gizle", cfg.hideWaypoints, function(v) cfg.hideWaypoints = v end)
-	vSec1:AddButton("HEPSİNİ KAPAT (Acil Durdur)", function()
-		cfg.autoFlingEnabled = false
-		cfg.grabAnimEnabled = false
-		cfg.hoverGrab = false
-		cfg.orbitToys = false
-		cfg.autoSpinSpawned = false
-		cfg.toyBlackHole = false
-		cfg.toyShield = false
-		cfg.spinHold = false
-		cfg.rainbowBeam = false
-		cfg.serverRainbow = false
-		cfg.infiniteJump = false
-		cfg.esp = false
-		releaseAllHovered(true)
-		setFly(false)
-		setNoclip(false)
-		clearESP()
-		Aurora:Notify("SC4", "Tüm aktif özellikler kapatıldı!", 3, "success")
-	end)
+	-- Keybind listener (exact AuraX_main style: no gp block so game-bound keys like F/G/E/Q/R/Mouse2 always work!)
+	if not AIM_MOBILE then
+		sc4Connect(UserInputService.InputBegan, function(input)
+			if sc4Unloaded or Aurora._keyListening or os.clock() < keySkipUntil or (Aurora._keySkipUntil and os.clock() < Aurora._keySkipUntil) or UserInputService:GetFocusedTextBox() then return end
+			if matchesKey(input, keyBinds.grabAnim) and toggleRefs.grabAnim then
+				toggleRefs.grabAnim.Set(not cfg.grabAnimEnabled)
+			elseif matchesKey(input, keyBinds.meteor) then
+				meteorSlam()
+			elseif matchesKey(input, keyBinds.hover) and toggleRefs.hover then
+				toggleRefs.hover.Set(not cfg.hoverGrab)
+			elseif matchesKey(input, keyBinds.autoFling) and toggleRefs.autoFling then
+				toggleRefs.autoFling.Set(not cfg.autoFlingEnabled)
+			elseif matchesKey(input, keyBinds.flingOnce) then
+				autoFlingOnce()
+			elseif matchesKey(input, keyBinds.autoSpin) and toggleRefs.autoSpin then
+				toggleRefs.autoSpin.Set(not cfg.autoSpinSpawned)
+			elseif matchesKey(input, keyBinds.toyShape) and toggleRefs.toyShape then
+				toggleRefs.toyShape.Set(not cfg.toyShapeEnabled)
+			elseif matchesKey(input, keyBinds.fly) and toggleRefs.fly then
+				toggleRefs.fly.Set(not cfg.fly)
+			elseif matchesKey(input, keyBinds.noclip) and toggleRefs.noclip then
+				toggleRefs.noclip.Set(not cfg.noclip)
+			end
+		end)
+	end
 
 	if gui then
 		gui.Destroying:Connect(function()
@@ -5004,39 +4561,9 @@ hCredits:AddCredit("3qr311", "Scripter")
 			pcall(function() releaseAllHovered(true) end)
 			pcall(function() setFly(false) end)
 			pcall(function() setNoclip(false) end)
-			pcall(clearESP)
-			pcall(function() if espFolder then espFolder:Destroy() end end)
 		end)
 	end
 end)()
-
--- VISUALS SEKME (sadece Custom Sky)
-local Visuals = Window:AddTab("Visuals", "o")
-local v3 = Visuals:AddSection("Custom Sky")
-v3:AddDropdown("Sky Preset", SkyAPI.Order, "Default", function(o)
-	SkyAPI.Set(o)
-	Aurora:Notify("Custom Sky", T_("Sky: ") .. tostring(o), 2.5)
-end)
-v3:AddToggle("Sky Details (clouds / nebula)", true, function(on) SkyAPI.SetDetail(on) end)
-v3:AddToggle("Shooting Stars", true, function(on) SkyAPI.SetShooting(on) end)
-v3:AddToggle("Rain Screen Effects (drops / streaks)", true, function(on) SkyAPI.SetScreen(on) end)
-v3:AddToggle("Lightning (Storm)", true, function(on) SkyAPI.SetLightning(on) end)
-v3:AddToggle("Rain Sound", true, function(on) SkyAPI.SetSound(on) end)
-v3:AddToggle("Thunder Sound", true, function(on) SkyAPI.SetThunder(on) end)
-v3:AddSlider("Rain Volume (%)", 0, 100, 60, function(v) SkyAPI.SetVolume(v / 100) end, 5)
-v3:AddSlider("Cloud Cover", 0, 1, 0.5, function(v) SkyAPI.Over("cover", v) end, 0.05)
-v3:AddToggle("Particles (petal / snow / ember)", true, function(on) SkyAPI.SetParticles(on) end)
-v3:AddSlider("Particle Density", 0.2, 3, 1, function(v) SkyAPI.SetDensity(v) end, 0.1)
-v3:AddSlider("Star Count", 0, 5000, 3000, function(v) SkyAPI.Over("stars", math.floor(v)) end, 100)
-v3:AddSlider("Atmosphere Density", 0, 1, 0.3, function(v) SkyAPI.Over("dens", v) end, 0.05)
-v3:AddColorPicker("Atmosphere Color", Color3.fromRGB(200, 200, 255), function(c) SkyAPI.Over("acol", c) end)
-v3:AddColorPicker("Horizon Color", Color3.fromRGB(255, 150, 120), function(c) SkyAPI.Over("dec", c) end)
-v3:AddToggle("Apply Preset Time (day/night)", true, function(on) SkyAPI.SetTime(on) end)
-v3:AddSlider("Sky Time (hour)", 0, 24, 12, function(v) SkyAPI.SetClock(v) end, 0.5)
-v3:AddButton("Reset Sky", function()
-	SkyAPI.Reset()
-	Aurora:Notify("Custom Sky", "Sky reset", 2.5)
-end)
 
 local Settings = Window:AddTab("Settings", "o")
 local s1 = Settings:AddSection("Appearance & Scale")
@@ -5077,7 +4604,11 @@ do
 			enforcedClockTime, enforcedAmbient = nil, nil
 			Aim.Enabled = false
 			Hit.Enabled = false
-			if workspace.CurrentCamera then workspace.CurrentCamera.FieldOfView = Aurora.Orig.FOV end
+			Aurora.FlyFlag.On = false
+			if FovLock.Value then
+				FovLock.On = false
+				workspace.CurrentCamera.FieldOfView = Aurora.Orig.FOV
+			end
 			workspace.Gravity = Aurora.Orig.Gravity
 		end)
 		-- gui yok edilince tum Destroying dinleyicileri calisir: fly/noclip/radar/crosshair/yagmur/gokyuzu/ESP/hitbox temizlenir
@@ -5175,7 +4706,7 @@ do
 	sPack:AddDropdown("Background Preset", BGORDER, "Sec", function(o) applyBG(o) end)
 end
 
-local sThemeBg = Settings:AddSection("Theme Backgrounds", true)
+local sThemeBg = Settings:AddSection("Theme Backgrounds", false)
 sThemeBg:AddColorPicker("Background 0 (Top)", T.bg0, function(c) Aurora:UpdateThemeColor("bg0", c) end)
 sThemeBg:AddColorPicker("Background 1 (Bottom)", T.bg1, function(c) Aurora:UpdateThemeColor("bg1", c) end)
 sThemeBg:AddColorPicker("Sidebar Color", T.side, function(c) Aurora:UpdateThemeColor("side", c) end)
@@ -5695,8 +5226,3 @@ if not __ok then
 		g.Parent = host
 	end)
 end
---[[
-  AURORA X - ULTIMATE INTEGRATED SCRIPT (Mobile Optimized Edition)
-  - Mobil cihazlar icin ekran olceklendirmesi ve baslangic boyutu optimize edildi.
-]]
-
