@@ -5,22 +5,6 @@
 
 print("[Aurora] script basladi")
 
------------------------------------------------------------------- OYUN PROFILLERI (PlaceId / GameId -> loadstring)
--- Buraya her oyun icin satir ekle:  [PlaceId] = "o oyunun surumunun raw linki"
--- Oyundaysan tam menu yerine o link yuklenir. Bos birakirsan (veya link hata verirse) tam menu acilir.
-local GAME_LOADERS = {
-	[106683702021527] = "https://raw.githubusercontent.com/kpudcum/Aurora-x/refs/heads/main/106683702021527", -- Slap oyunu
-	[13664698400] = "https://raw.githubusercontent.com/kpudcum/Aurora-x/refs/heads/main/13664698400", -- Futbol oyunu (Ball lite)
-    [140409667345323] = "https://raw.githubusercontent.com/kpudcum/Aurora-x/refs/heads/main/140409667345323",  --Aura X
-}
-do
-	local url = GAME_LOADERS[game.PlaceId] or GAME_LOADERS[game.GameId]
-	if type(url) == "string" and url ~= "" then
-		local ok, err = pcall(function() loadstring(game:HttpGet(url))() end)
-		if ok then return end
-		warn("[Aurora] oyun profili yuklenemedi, tam menu aciliyor: " .. tostring(err))
-	end
-end
 local __ok, __err = xpcall(function()
 
 local Players = game:GetService("Players")
