@@ -2814,6 +2814,41 @@ hCredits:AddCredit("3qr311", "Scripter")
 	}
 
 	-- ---------------- GRAB TRACKER + SUPER THROW + SPIN ----------------
+	local grabNoColConstraints = {}
+	local grabNoColPart = nil
+	local function clearGrabNoCol()
+		for _, c in ipairs(grabNoColConstraints) do
+			if c and c.Parent then pcall(function() c:Destroy() end) end
+		end
+		grabNoColConstraints = {}
+		grabNoColPart = nil
+	end
+	local function applyGrabNoCol(part)
+		if not part or not part:IsDescendantOf(workspace) or part.Anchored then return end
+		if grabNoColPart == part and #grabNoColConstraints > 0 then return end
+		clearGrabNoCol()
+		local myChar = LocalPlayer.Character
+		if not myChar or part:IsDescendantOf(myChar) then return end
+		local myParts = {}
+		for _, d in ipairs(myChar:GetDescendants()) do
+			if d:IsA("BasePart") then table.insert(myParts, d) end
+		end
+		local targetParts = getAssemblyParts(part)
+		for _, tp in ipairs(targetParts) do
+			if tp:IsA("BasePart") and not tp.Anchored then
+				for _, mp in ipairs(myParts) do
+					local nc = Instance.new("NoCollisionConstraint")
+					nc.Name = "SC4GrabNoCol"
+					nc.Part0 = mp
+					nc.Part1 = tp
+					nc.Parent = mp
+					table.insert(grabNoColConstraints, nc)
+				end
+			end
+		end
+		grabNoColPart = part
+	end
+
 	sc4Connect(RunService.Heartbeat, function()
 		if sc4Unloaded then return end
 		local clone = workspace:FindFirstChild("GrabParts")
@@ -2826,6 +2861,9 @@ hCredits:AddCredit("3qr311", "Scripter")
 				st.grabbedPart = part
 				st.grabbedClone = clone
 				st.grabbedLastSeen = os.clock()
+				if cfg.superThrow or cfg.spinHold or cfg.grabAnimEnabled then
+					applyGrabNoCol(part)
+				end
 				return
 			end
 		end
@@ -2843,6 +2881,9 @@ hCredits:AddCredit("3qr311", "Scripter")
 					end
 				end
 			end
+			task.delay(0.25, function()
+				if not st.grabbedPart then clearGrabNoCol() end
+			end)
 		end
 	end)
 
@@ -3230,7 +3271,10 @@ hCredits:AddCredit("3qr311", "Scripter")
 				spinVec = Vector3.new(20, 30, 20)
 			end
 
-			-- Keep animated object safely >= 9 studs away from our character even on close mobile camera
+			-- Keep animated object safely above ground & >= 9 studs away from our character
+			if targetPos.Y < hrp.Position.Y + 1.5 then
+				targetPos = Vector3.new(targetPos.X, hrp.Position.Y + 1.5, targetPos.Z)
+			end
 			local fromMe = targetPos - hrp.Position
 			if fromMe.Magnitude < 9 then
 				local pushDir = fromMe.Magnitude > 0.05 and fromMe.Unit or (cam and cam.CFrame.LookVector or hrp.CFrame.LookVector)
@@ -3239,8 +3283,8 @@ hCredits:AddCredit("3qr311", "Scripter")
 			local dragPart = st.grabbedClone and st.grabbedClone:FindFirstChild("DragPart")
 			if dragPart and dragPart:IsA("BasePart") then dragPart.Position = targetPos end
 			local diff = targetPos - st.grabbedPart.Position
-			local animVel = diff * 12
-			if animVel.Magnitude > 180 then animVel = animVel.Unit * 180 end
+			local animVel = diff * 8
+			if animVel.Magnitude > 65 then animVel = animVel.Unit * 65 end
 			for _, p in ipairs(getAssemblyParts(st.grabbedPart)) do
 				if p:IsA("BasePart") and not p.Anchored then
 					p.AssemblyLinearVelocity = animVel
@@ -3363,7 +3407,9 @@ hCredits:AddCredit("3qr311", "Scripter")
 		local function restoreNoclip() end
 
 		-- STEP 1: Sync position behind target so server confirms we are in grab range
-		local syncEnd = os.clock() + getDynamicSyncTime()
+		local startDist = (hrp.Position - tTorso.Position).Magnitude
+		local syncExtra = (startDist > 20) and 0.12 or 0
+		local syncEnd = os.clock() + getDynamicSyncTime() + syncExtra
 		while os.clock() < syncEnd and not sc4Unloaded do
 			if os.clock() < flingAbortUntil or not isTargetSafeToGrab(targetPlayer) or not (hrp and hrp.Parent) then
 				restoreNoclip()
@@ -3381,8 +3427,12 @@ hCredits:AddCredit("3qr311", "Scripter")
 			return false
 		end
 
-		-- STEP 2: Clean grab on visible Torso + confirm NetworkOwnership
+		-- STEP 2: Clean grab on visible Torso + confirm NetworkOwnership (never fire > 15 studs!)
 		local distNow = (hrp.Position - tTorso.Position).Magnitude
+		if distNow > 15 then
+			restoreNoclip()
+			return false
+		end
 		local headPos = hrp.Position + Vector3.new(0, 1.5, 0)
 		local aimCF = CFrame.lookAt(headPos, tTorso.Position)
 		safeFire("CreateGrabLine", tTorso, CFrame.new())
@@ -3391,7 +3441,7 @@ hCredits:AddCredit("3qr311", "Scripter")
 
 		local holdCF = hrp.CFrame
 		local ownStart = os.clock()
-		local ownEnd = ownStart + 0.26
+		local ownEnd = ownStart + 0.30
 		local refired = false
 		local gotOwnership = (type(isnetworkowner) ~= "function")
 		while os.clock() < ownEnd and not sc4Unloaded do
@@ -3407,7 +3457,7 @@ hCredits:AddCredit("3qr311", "Scripter")
 					break
 				end
 			end
-			if not refired and (os.clock() - ownStart) >= 0.13 then
+			if not refired and (os.clock() - ownStart) >= 0.15 and (hrp.Position - tTorso.Position).Magnitude <= 15 then
 				refired = true
 				local hp2 = hrp.Position + Vector3.new(0, 1.5, 0)
 				safeFire("SetNetworkOwner", tTorso, CFrame.lookAt(hp2, tTorso.Position))
@@ -3415,14 +3465,16 @@ hCredits:AddCredit("3qr311", "Scripter")
 			RunService.Heartbeat:Wait()
 		end
 
-		if not gotOwnership and isPlayerInPlot(targetPlayer) then
+		if not gotOwnership then
 			safeFire("DestroyGrabLine", tTorso)
 			restoreNoclip()
-			Aurora:Notify("Safe Zone", targetPlayer.DisplayName .. " is in a protected house/plot (server blocked grab).", 3, "warn")
+			if isPlayerInPlot(targetPlayer) then
+				Aurora:Notify("Safe Zone", targetPlayer.DisplayName .. " is in a protected house/plot (server blocked grab).", 3, "warn")
+			end
 			return false
 		end
 
-		-- STEP 3: Sustained BodyVelocity on tHRP (assembly root) + AssemblyLinearVelocity on all parts
+		-- STEP 3: Burst BodyVelocity + AssemblyLinearVelocity, then IMMEDIATELY release GrabLine before target exceeds 22 studs (prevents GameCorrectionsNotify!)
 		if os.clock() >= flingAbortUntil and tHRP and tHRP.Parent and tHRP:IsDescendantOf(workspace) then
 			local lookDir = hrp.CFrame.LookVector
 			local flatDir = Vector3.new(lookDir.X, 0, lookDir.Z)
@@ -3437,7 +3489,7 @@ hCredits:AddCredit("3qr311", "Scripter")
 			bv.Velocity = vel
 			bv.Parent = tHRP
 
-			local launchEnd = os.clock() + 0.40
+			local launchEnd = os.clock() + 0.16
 			while os.clock() < launchEnd and not sc4Unloaded do
 				if os.clock() < flingAbortUntil or not (tHRP and tHRP.Parent) then break end
 				if hrp and hrp.Parent then
@@ -3451,6 +3503,10 @@ hCredits:AddCredit("3qr311", "Scripter")
 						p.AssemblyLinearVelocity = vel
 						p.AssemblyAngularVelocity = Vector3.new(100, 180, 100)
 					end
+				end
+				-- Release GrabLine as soon as target launches past 20 studs so server NEVER flags an over-extended grab!
+				if hrp and hrp.Parent and (tHRP.Position - hrp.Position).Magnitude > 20 then
+					break
 				end
 				RunService.Heartbeat:Wait()
 			end
