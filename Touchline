@@ -1376,24 +1376,88 @@ function Aurora:CreateWindow(titleText, subtitle)
 			-- PREMIUM kilidi: bolum gorunur kalir, kontroller acilmaz; basinca "Premium'da mevcut" uyarisi cikar
 			if PREMIUM.Locked[sid] and not PREMIUM.Owned then
 				local GOLD = Color3.fromRGB(255, 190, 60)
+				local GOLD_SEQ = ColorSequence.new({
+					ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 168, 38)),
+					ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 238, 176)),
+					ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 168, 38)),
+				})
+				local DARKTXT = Color3.fromRGB(34, 24, 4)
+				-- tek bir dongu butun altin parlamalari (shimmer) kaydirir
+				if not PREMIUM.shine then
+					PREMIUM.shine = {}
+					RunService.Heartbeat:Connect(function()
+						local off = Vector2.new(((os.clock() * 0.45) % 2.4) - 1.2, 0)
+						for i = #PREMIUM.shine, 1, -1 do
+							local g = PREMIUM.shine[i]
+							if g.Parent then g.Offset = off else table.remove(PREMIUM.shine, i) end
+						end
+					end)
+				end
+				local function goldPill(w, h, txt, ts, z)
+					local p = new("Frame", { Size = UDim2.fromOffset(w, h), BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0, ZIndex = z }, { corner(h / 2) })
+					local g = new("UIGradient", { Color = GOLD_SEQ, Rotation = 20 })
+					g.Parent = p
+					table.insert(PREMIUM.shine, g)
+					label({ Text = txt, Font = Enum.Font.GothamBlack, TextSize = ts, TextColor3 = DARKTXT, TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.fromScale(1, 1), ZIndex = z + 1 }).Parent = p
+					return p
+				end
+				-- kucuk kilit ikonu (govde + kanca + anahtar deligi)
+				local function lockIcon(sc, z)
+					local f = new("Frame", { Size = UDim2.fromOffset(math.floor(14 * sc), math.floor(16 * sc)), BackgroundTransparency = 1, ZIndex = z })
+					local sh = new("Frame", { Size = UDim2.fromOffset(math.floor(10 * sc), math.floor(10 * sc)), Position = UDim2.fromOffset(math.floor(2 * sc), 0), BackgroundTransparency = 1, ZIndex = z }, { corner(math.floor(5 * sc)), stroke(GOLD, math.max(1, math.floor(2 * sc)), 0) })
+					sh.Parent = f
+					local body = new("Frame", { Size = UDim2.fromOffset(math.floor(14 * sc), math.floor(9 * sc)), Position = UDim2.fromOffset(0, math.floor(7 * sc)), BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0, ZIndex = z + 1 }, { corner(math.floor(3 * sc)) })
+					local g = new("UIGradient", { Color = GOLD_SEQ, Rotation = 60 })
+					g.Parent = body
+					table.insert(PREMIUM.shine, g)
+					new("Frame", { Size = UDim2.fromOffset(math.max(2, math.floor(2 * sc)), math.floor(4 * sc)), AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), BackgroundColor3 = DARKTXT, BorderSizePixel = 0, ZIndex = z + 2 }).Parent = body
+					body.Parent = f
+					return f
+				end
 				local lastWarn = 0
 				local function warnPremium(what)
 					if os.clock() - lastWarn < 1.2 then return end
 					lastWarn = os.clock()
-					Aurora:Notify("Premium Feature", tostring(what) .. " is available in Premium only.", 3.5, "warn")
+					Aurora:Notify("Premium Feature", tostring(what) .. " is part of Aurora X Premium. Upgrade to unlock it.", 4, "warn")
 				end
-				local ptag = new("Frame", { Size = UDim2.fromOffset(62, 16), Position = UDim2.new(1, -108, 0.5, -8), BackgroundColor3 = GOLD, BorderSizePixel = 0 }, { corner(8) })
-				label({ Text = "PREMIUM", Font = Enum.Font.GothamBlack, TextSize = 9, TextColor3 = Color3.fromRGB(30, 22, 4), TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.fromScale(1, 1) }).Parent = ptag
+				-- bolum basligi: altin cerceve + kilitli PREMIUM rozeti
+				stroke(GOLD, 1, 0.78).Parent = card
+				local ptag = goldPill(80, 18, "PREMIUM", 9, 3)
+				ptag.Position = UDim2.new(1, -128, 0.5, -9)
+				local tl = lockIcon(0.6, 4)
+				tl.Position = UDim2.fromOffset(6, 4)
+				tl.Parent = ptag
 				ptag.Parent = head
 				local cbIdx = { AddToggle = 3, AddSlider = 5, AddButton = 2, AddDropdown = 4, AddKeybind = 3, AddColorPicker = 3, AddTextbox = 3 }
 				local function noop() end
 				local function cover(r, what)
 					if not r then return end
-					local ov = new("TextButton", { Text = "", Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.5, AutoButtonColor = false, Active = true, ZIndex = 60, BorderSizePixel = 0 }, { corner(10) })
-					local pill = new("Frame", { Size = UDim2.fromOffset(64, 18), AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -10, 0.5, 0), BackgroundColor3 = GOLD, BorderSizePixel = 0, ZIndex = 61 }, { corner(9) })
-					label({ Text = "PREMIUM", Font = Enum.Font.GothamBlack, TextSize = 9, TextColor3 = Color3.fromRGB(30, 22, 4), TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.fromScale(1, 1), ZIndex = 62 }).Parent = pill
+					local ov = new("TextButton", { Text = "", Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(1, 1, 1), BackgroundTransparency = 0.12, AutoButtonColor = false, Active = true, ZIndex = 60, BorderSizePixel = 0, ClipsDescendants = true }, { corner(10) })
+					new("UIGradient", { Color = ColorSequence.new(Color3.fromRGB(10, 10, 16), Color3.fromRGB(52, 38, 10)), Rotation = 0 }).Parent = ov
+					local st = stroke(GOLD, 1, 0.7)
+					st.Parent = ov
+					local ic = lockIcon(1, 61)
+					ic.AnchorPoint = Vector2.new(0, 0.5)
+					ic.Position = UDim2.new(0, 14, 0.5, 0)
+					ic.Parent = ov
+					label({ Text = "Unlock with Premium", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = GOLD, Size = UDim2.new(1, -150, 1, 0), Position = UDim2.fromOffset(38, 0), ZIndex = 61 }).Parent = ov
+					local pill = goldPill(70, 20, "PREMIUM", 10, 61)
+					pill.AnchorPoint = Vector2.new(1, 0.5)
+					pill.Position = UDim2.new(1, -12, 0.5, 0)
 					pill.Parent = ov
-					ov.MouseButton1Click:Connect(function() warnPremium(what) end)
+					ov.MouseEnter:Connect(function()
+						tween(st, 0.18, { Transparency = 0.1 })
+						tween(pill, 0.18, { Size = UDim2.fromOffset(76, 22) })
+					end)
+					ov.MouseLeave:Connect(function()
+						tween(st, 0.25, { Transparency = 0.7 })
+						tween(pill, 0.25, { Size = UDim2.fromOffset(70, 20) })
+					end)
+					ov.MouseButton1Click:Connect(function()
+						tween(pill, 0.08, { Size = UDim2.fromOffset(64, 18) })
+						task.delay(0.08, function() tween(pill, 0.2, { Size = UDim2.fromOffset(76, 22) }, Enum.EasingStyle.Back) end)
+						warnPremium(what)
+					end)
 					ov.Parent = r
 				end
 				for nm, ci in pairs(cbIdx) do
