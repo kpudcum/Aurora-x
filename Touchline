@@ -1875,37 +1875,200 @@ function Aurora:CreateWindow(titleText, subtitle)
 	end
 
 	function Window:Open()
-		local splash = new("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(300, 170), BackgroundColor3 = T.bg0, BorderSizePixel = 0 }, { corner(20), stroke(accent, 1.5, 0.2) })
-		onThemeChange(function(k, c) if k == "bg0" then splash.BackgroundColor3 = c end end)
-		local sScale = new("UIScale", { Scale = 0.6 })
-		sScale.Parent = splash
-		local sl = new("Frame", { Size = UDim2.fromOffset(52, 52), AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 22), BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0 }, { corner(16) })
-		accentGrad(sl, 45)
-		label({ Text = "A", Font = Enum.Font.GothamBlack, TextSize = 28, TextColor3 = Color3.new(1, 1, 1), TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.fromScale(1, 1) }).Parent = sl
-		sl.Parent = splash
-		label({ Text = string.upper(titleText or "Aurora X"), Font = Enum.Font.GothamBlack, TextSize = 15, TextColor3 = T.text, TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.new(1, 0, 0, 20), Position = UDim2.fromOffset(0, 84) }).Parent = splash
-		local st = label({ Text = "Loading modules...", TextSize = 11, TextColor3 = T.dim, TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.new(1, 0, 0, 14), Position = UDim2.fromOffset(0, 106) })
-		st.Parent = splash
-		local tr = new("Frame", { Size = UDim2.new(1, -56, 0, 5), Position = UDim2.fromOffset(28, 136), BackgroundColor3 = T.bg1, BorderSizePixel = 0 }, { corner(3) })
-		onThemeChange(function(k, c) if k == "bg1" then tr.BackgroundColor3 = c end end)
-		local fl = new("Frame", { Size = UDim2.fromScale(0, 1), BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0 }, { corner(3) })
-		accentGrad(fl, 0)
-		fl.Parent = tr
-		tr.Parent = splash
-		splash.Parent = gui
+		local WHITE = Color3.new(1, 1, 1)
+		local vp = gui.AbsoluteSize
+		local fit = math.clamp(math.min(vp.X / 560, vp.Y / 340), 0.55, 1.15)
+		local backdrop = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromRGB(3, 4, 10), BackgroundTransparency = 1, BorderSizePixel = 0 })
+		backdrop.Parent = gui
+		tween(backdrop, 0.45, { BackgroundTransparency = 0.2 })
 
-		tween(sScale, 0.5, { Scale = 1 }, Enum.EasingStyle.Back)
-		task.spawn(function()
-			local steps = { { "Loading modules...", 0.35 }, { "Applying theme...", 0.7 }, { "Almost there...", 1 } }
-			for _, s in ipairs(steps) do
-				st.Text = s[1]
-				tween(fl, 0.4, { Size = UDim2.fromScale(s[2], 1) })
-				task.wait(0.45)
+		local card = new("CanvasGroup", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(480, 290), BackgroundColor3 = Color3.fromRGB(8, 9, 18), BorderSizePixel = 0, GroupTransparency = 1 }, { corner(22) })
+		local cardStroke = stroke(accent, 1.5, 0.35)
+		cardStroke.Parent = card
+		onAccent(function(a) cardStroke.Color = a end)
+		local cScale = new("UIScale", { Scale = fit * 0.82 })
+		cScale.Parent = card
+		new("UIGradient", { Rotation = 90, Color = ColorSequence.new(Color3.fromRGB(8, 10, 24), Color3.fromRGB(22, 13, 46)) }).Parent = card
+
+		-- aurora seritleri
+		local rbs = {}
+		local cols = { Color3.fromRGB(60, 255, 190), Color3.fromRGB(150, 90, 255), Color3.fromRGB(255, 80, 170) }
+		for i = 1, 3 do
+			local set = { frames = {}, y = 0.12 + i * 0.1, rot = ({ -10, 8, -4 })[i], sp = 0.5 + i * 0.15, ph = i * 1.9 }
+			for k = 1, 3 do
+				local h = ({ 84, 50, 22 })[k]
+				local f = new("Frame", { Size = UDim2.new(1.5, 0, 0, h), AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, set.y, 0), Rotation = set.rot, BackgroundColor3 = WHITE, BackgroundTransparency = ({ 0.93, 0.85, 0.72 })[k], BorderSizePixel = 0 }, { corner(math.floor(h / 2)) })
+				local g = new("UIGradient", { Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.3, 0), NumberSequenceKeypoint.new(0.7, 0), NumberSequenceKeypoint.new(1, 1) }) })
+				g.Parent = f
+				f.Parent = card
+				table.insert(set.frames, { f, g })
 			end
-			tween(sScale, 0.3, { Scale = 0.8 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
-			tween(splash, 0.3, { BackgroundTransparency = 1 })
-			task.wait(0.25)
-			splash:Destroy()
+			table.insert(rbs, set)
+		end
+		onAccent(function(a, b)
+			local pal = { { a, cols[1], b }, { cols[2], b, cols[3] }, { cols[1], a, cols[2] } }
+			for i, set in ipairs(rbs) do
+				for _, fg in ipairs(set.frames) do
+					fg[2].Color = ColorSequence.new({ ColorSequenceKeypoint.new(0, pal[i][1]), ColorSequenceKeypoint.new(0.5, pal[i][2]), ColorSequenceKeypoint.new(1, pal[i][3]) })
+				end
+			end
+		end)
+		-- alt karartma
+		new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(0, 0, 0), BorderSizePixel = 0 }, {
+			new("UIGradient", { Rotation = 90, Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.55), NumberSequenceKeypoint.new(0.4, 0.2), NumberSequenceKeypoint.new(1, 0.05) }) }),
+		}).Parent = card
+
+		-- yukselen parcaciklar
+		local rnd = Random.new(os.time())
+		local parts = {}
+		for _ = 1, 16 do
+			local sz = rnd:NextInteger(2, 4)
+			local f = new("Frame", { Size = UDim2.fromOffset(sz, sz), BackgroundColor3 = WHITE, BackgroundTransparency = 1, BorderSizePixel = 0 }, { corner(2) })
+			f.Parent = card
+			table.insert(parts, { f, rnd:NextNumber(), rnd:NextNumber(0.06, 0.16), rnd:NextNumber() })
+		end
+
+		-- logo: parlama + donen halka + ic kare
+		local logo = new("Frame", { Size = UDim2.fromOffset(100, 100), AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 14), BackgroundTransparency = 1 })
+		local glow = new("Frame", { Size = UDim2.fromOffset(100, 100), AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), BackgroundColor3 = accent, BackgroundTransparency = 0.85, BorderSizePixel = 0 }, { corner(50) })
+		glow.Parent = logo
+		onAccent(function(a) glow.BackgroundColor3 = a end)
+		local ring = new("Frame", { Size = UDim2.fromOffset(84, 84), AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), BackgroundTransparency = 1 }, { corner(42) })
+		local rs = new("UIStroke", { Color = WHITE, Thickness = 3, ApplyStrokeMode = Enum.ApplyStrokeMode.Border })
+		local rg = new("UIGradient", {})
+		rg.Parent = rs
+		rs.Parent = ring
+		ring.Parent = logo
+		onAccent(function(a, b) rg.Color = ColorSequence.new({ ColorSequenceKeypoint.new(0, a), ColorSequenceKeypoint.new(0.4, WHITE), ColorSequenceKeypoint.new(0.7, b), ColorSequenceKeypoint.new(1, a) }) end)
+		local sq = new("Frame", { Size = UDim2.fromOffset(58, 58), AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), BackgroundColor3 = WHITE, BorderSizePixel = 0 }, { corner(18) })
+		accentGrad(sq, 45)
+		local sqScale = new("UIScale", { Scale = 0 })
+		sqScale.Parent = sq
+		label({ Text = "A", Font = Enum.Font.GothamBlack, TextSize = 32, TextColor3 = WHITE, TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.fromScale(1, 1) }).Parent = sq
+		sq.Parent = logo
+		logo.Parent = card
+
+		local title = label({ Text = string.upper(titleText or "Aurora X"), Font = Enum.Font.GothamBlack, TextSize = 28, TextColor3 = WHITE, TextXAlignment = Enum.TextXAlignment.Center, TextTransparency = 1, Size = UDim2.new(1, 0, 0, 34), Position = UDim2.fromOffset(0, 120) })
+		local tg = new("UIGradient", {})
+		tg.Parent = title
+		onAccent(function(a, b) tg.Color = ColorSequence.new({ ColorSequenceKeypoint.new(0, a), ColorSequenceKeypoint.new(0.5, WHITE), ColorSequenceKeypoint.new(1, b) }) end)
+		title.Parent = card
+		local subL = label({ Text = string.upper(subtitle or "v2.0"), Font = Enum.Font.GothamBold, TextSize = 10, TextColor3 = T.sub, TextTransparency = 1, TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.new(1, 0, 0, 14), Position = UDim2.fromOffset(0, 154) })
+		subL.Parent = card
+
+		-- ilerleme cubugu
+		local status = label({ Text = "Initializing core...", Font = Enum.Font.GothamMedium, TextSize = 11, TextColor3 = T.sub, Size = UDim2.new(0, 280, 0, 14), Position = UDim2.fromOffset(60, 176) })
+		status.Parent = card
+		local pct = label({ Text = "0%", Font = Enum.Font.GothamBlack, TextSize = 12, TextColor3 = WHITE, TextXAlignment = Enum.TextXAlignment.Right, Size = UDim2.fromOffset(60, 14), Position = UDim2.fromOffset(360, 176) })
+		pct.Parent = card
+		local track = new("Frame", { Size = UDim2.fromOffset(360, 6), Position = UDim2.fromOffset(60, 196), BackgroundColor3 = Color3.fromRGB(26, 28, 44), BorderSizePixel = 0 }, { corner(3) })
+		local fl = new("Frame", { Size = UDim2.fromScale(0, 1), BackgroundColor3 = WHITE, BorderSizePixel = 0 }, { corner(3) })
+		accentGrad(fl, 0)
+		fl.Parent = track
+		local head = new("Frame", { Size = UDim2.fromOffset(14, 14), AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0, 0, 0.5, 0), BackgroundColor3 = WHITE, BackgroundTransparency = 0.55, BorderSizePixel = 0, ZIndex = 3 }, { corner(7) })
+		head.Parent = track
+		track.Parent = card
+
+		-- "Biliyor musun?" kutusu
+		local tipBox = new("Frame", { Size = UDim2.fromOffset(400, 58), Position = UDim2.fromOffset(40, 220), BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.45, BorderSizePixel = 0 }, { corner(14), stroke(WHITE, 1, 0.86) })
+		local tipHead = label({ Text = "DID YOU KNOW?", Font = Enum.Font.GothamBlack, TextSize = 10, TextColor3 = accent, TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.new(1, 0, 0, 14), Position = UDim2.fromOffset(0, 8) })
+		tipHead.Parent = tipBox
+		onAccent(function(a) tipHead.TextColor3 = a end)
+		local tipL = label({ Text = "", TextSize = 12, TextColor3 = T.text, TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Center, TextYAlignment = Enum.TextYAlignment.Top, Size = UDim2.new(1, -28, 0, 30), Position = UDim2.fromOffset(14, 25) })
+		tipL.Parent = tipBox
+		tipBox.Parent = card
+		card.Parent = gui
+
+		tween(cScale, 0.55, { Scale = fit }, Enum.EasingStyle.Back)
+		tween(card, 0.4, { GroupTransparency = 0 })
+		tween(sqScale, 0.7, { Scale = 1 }, Enum.EasingStyle.Back)
+		tween(title, 0.8, { TextTransparency = 0 })
+		task.delay(0.2, function() tween(subL, 0.7, { TextTransparency = 0.1 }) end)
+
+		-- animasyon dongusu
+		local t0 = os.clock()
+		local conn
+		conn = RunService.Heartbeat:Connect(function()
+			if not card.Parent then conn:Disconnect() return end
+			local t = os.clock() - t0
+			rg.Rotation = (t * 150) % 360
+			glow.BackgroundTransparency = 0.86 + 0.08 * math.sin(t * 2.4)
+			glow.Size = UDim2.fromOffset(100 + 8 * math.sin(t * 2.4), 100 + 8 * math.sin(t * 2.4))
+			tg.Offset = Vector2.new(((t * 0.5) % 2.6) - 1.3, 0)
+			for _, set in ipairs(rbs) do
+				for k, fg in ipairs(set.frames) do
+					local w = t * set.sp + set.ph + k * 0.35
+					fg[1].Position = UDim2.new(0.5, math.sin(w * 0.8) * 30, set.y + math.sin(w) * 0.06, 0)
+					fg[1].Rotation = set.rot + math.sin(w * 0.7) * 6
+					fg[2].Offset = Vector2.new(math.sin(w * 0.6) * 0.25, 0)
+				end
+			end
+			for _, p in ipairs(parts) do
+				local k = (t * p[3] + p[4]) % 1
+				p[1].Position = UDim2.new(p[2], math.sin(t + p[4] * 6) * 8, 1 - k, 0)
+				p[1].BackgroundTransparency = 1 - math.sin(k * math.pi) * 0.6
+			end
+			local frac = fl.Size.X.Scale
+			pct.Text = string.format("%d%%", math.floor(frac * 100 + 0.5))
+			head.Position = UDim2.new(frac, 0, 0.5, 0)
+		end)
+
+		-- ipuclari (rastgele sirayla)
+		local tips = {
+			"Tap any section header to collapse or expand it.",
+			"You can change the accent color and theme backgrounds in Settings.",
+			"Save your settings as a config and load them again next time.",
+			"Use Panic in Settings to hide everything instantly.",
+			"The Home tab shows live FPS, latency and player count.",
+			"Join our Discord from the Home tab for updates and support.",
+			"Drag the menu by its title bar to place it anywhere you like.",
+			"Aurora X loads a special profile when it detects a supported game.",
+		}
+		if PREMIUM and not PREMIUM.Owned then table.insert(tips, "Features marked PREMIUM are part of Aurora X Premium.") end
+		for i = #tips, 2, -1 do
+			local j = rnd:NextInteger(1, i)
+			tips[i], tips[j] = tips[j], tips[i]
+		end
+		task.spawn(function()
+			local i = 0
+			while card.Parent do
+				i = i + 1
+				tipL.Text = tips[(i - 1) % #tips + 1]
+				tipL.TextTransparency = 1
+				tween(tipL, 0.25, { TextTransparency = 0 })
+				task.wait(1.7)
+				if not card.Parent then return end
+				tween(tipL, 0.2, { TextTransparency = 1 })
+				task.wait(0.22)
+			end
+		end)
+
+		-- yukleme adimlari
+		task.spawn(function()
+			task.wait(0.55)
+			local steps = {
+				{ "Initializing core...", 0.14, 0.6 },
+				{ "Loading modules...", 0.38, 0.85 },
+				{ "Syncing configuration...", 0.58, 0.75 },
+				{ "Applying theme...", 0.78, 0.7 },
+				{ "Hooking interface...", 0.93, 0.65 },
+				{ "Ready!", 1, 0.45 },
+			}
+			for _, s in ipairs(steps) do
+				status.Text = s[1]
+				tween(fl, s[3] * 0.8, { Size = UDim2.fromScale(s[2], 1) }, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut)
+				task.wait(s[3])
+			end
+			status.Text = "Ready!"
+			status.TextColor3 = T.ok
+			tween(cardStroke, 0.3, { Transparency = 0, Thickness = 2.5 })
+			task.wait(0.45)
+			tween(cScale, 0.4, { Scale = fit * 1.08 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+			tween(card, 0.4, { GroupTransparency = 1 })
+			tween(backdrop, 0.4, { BackgroundTransparency = 1 })
+			task.wait(0.42)
+			card:Destroy()
+			backdrop:Destroy()
 			setOpen(true)
 			if Window.AfterOpen then task.spawn(Window.AfterOpen) end
 		end)
