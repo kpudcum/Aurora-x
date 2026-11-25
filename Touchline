@@ -100,10 +100,10 @@ local function onThemeChange(fn)
 	table.insert(themeHooks, fn)
 end
 
-function Aurora:SetAccent(c, save)
+function Aurora:SetAccent(c, save, c2)
 	if type(c) == "string" then c = ACCENTS[c] end
 	if typeof(c) ~= "Color3" then return end
-	accent, accent2 = c, shift(c)
+	accent, accent2 = c, (typeof(c2) == "Color3") and c2 or shift(c)
 	if save then savedAccent = c end
 	for _, fn in ipairs(hooks) do fn(accent, accent2) end
 end
@@ -113,7 +113,75 @@ function Aurora:UpdateThemeColor(key, col)
 	for _, fn in ipairs(themeHooks) do fn(key, col) end
 end
 
+-- HAREKETLI TEMALAR: renk paleti boyunca akan vurgu + arka plan renkleri (her karede guncellenir)
+Aurora.Anim = { pal = nil, name = nil, speed = 1, bg = true, snap = nil, t0 = 0, n = 0 }
+do
+local ANIM = Aurora.Anim
+local ANIM_PALETTES = {
+	["Aurora Borealis"] = { Color3.fromRGB(60, 255, 190), Color3.fromRGB(40, 200, 255), Color3.fromRGB(150, 90, 255), Color3.fromRGB(90, 255, 130) },
+	["Neon City"] = { Color3.fromRGB(255, 40, 200), Color3.fromRGB(40, 230, 255), Color3.fromRGB(130, 60, 255), Color3.fromRGB(255, 70, 140) },
+	["Sunset Blaze"] = { Color3.fromRGB(255, 120, 40), Color3.fromRGB(255, 60, 120), Color3.fromRGB(255, 200, 60), Color3.fromRGB(170, 60, 210) },
+	["Ocean Wave"] = { Color3.fromRGB(30, 120, 255), Color3.fromRGB(40, 220, 240), Color3.fromRGB(20, 190, 170), Color3.fromRGB(120, 190, 255) },
+	["Cosmic Galaxy"] = { Color3.fromRGB(90, 70, 255), Color3.fromRGB(200, 60, 255), Color3.fromRGB(255, 90, 190), Color3.fromRGB(60, 120, 255) },
+	["Lava Flow"] = { Color3.fromRGB(255, 50, 40), Color3.fromRGB(255, 130, 30), Color3.fromRGB(255, 205, 60), Color3.fromRGB(210, 20, 70) },
+	["Cherry Blossom"] = { Color3.fromRGB(255, 135, 200), Color3.fromRGB(255, 94, 145), Color3.fromRGB(255, 205, 228), Color3.fromRGB(200, 150, 255) },
+	["Toxic Rave"] = { Color3.fromRGB(160, 255, 60), Color3.fromRGB(30, 230, 120), Color3.fromRGB(40, 230, 230), Color3.fromRGB(235, 255, 70) },
+	["Ice Crystal"] = { Color3.fromRGB(105, 200, 255), Color3.fromRGB(225, 240, 255), Color3.fromRGB(60, 230, 255), Color3.fromRGB(150, 160, 255) },
+	["Vaporwave"] = { Color3.fromRGB(255, 113, 206), Color3.fromRGB(1, 205, 254), Color3.fromRGB(185, 103, 255), Color3.fromRGB(5, 255, 161) },
+	["Golden Hour"] = { Color3.fromRGB(255, 205, 60), Color3.fromRGB(255, 150, 70), Color3.fromRGB(255, 120, 120), Color3.fromRGB(255, 230, 140) },
+	["Rainbow Flow"] = { Color3.fromRGB(255, 70, 70), Color3.fromRGB(255, 200, 50), Color3.fromRGB(70, 230, 110), Color3.fromRGB(50, 200, 255), Color3.fromRGB(110, 90, 255), Color3.fromRGB(240, 70, 210) },
+}
+local function palSample(pal, x)
+	local n = #pal
+	local p = (x % 1) * n
+	local i = math.floor(p)
+	local f = p - i
+	f = f * f * (3 - 2 * f)
+	return pal[i % n + 1]:Lerp(pal[(i + 1) % n + 1], f)
+end
+local function tintBG(c, v, sMul)
+	local h, sat = c:ToHSV()
+	return Color3.fromHSV(h, math.clamp(sat * sMul, 0, 1), v)
+end
+-- restore=false: kullanici kendi rengini/arka planini sectiyse eski degerlere donme
+function Aurora:StopAnimTheme(restore)
+	if not ANIM.pal then return end
+	ANIM.pal, ANIM.name = nil, nil
+	local snap = ANIM.snap
+	ANIM.snap = nil
+	if restore ~= false then
+		Aurora:SetAccent(savedAccent, false)
+		if snap then
+			for k, v in pairs(snap) do Aurora:UpdateThemeColor(k, v) end
+		end
+	end
+end
+function Aurora:StartAnimTheme(name)
+	local pal = ANIM_PALETTES[name]
+	if not pal then Aurora:StopAnimTheme() return end
+	if not ANIM.pal then ANIM.snap = { bg0 = T.bg0, bg1 = T.bg1, side = T.side } end
+	isRainbowAccent = false
+	ANIM.pal, ANIM.name, ANIM.t0 = pal, name, os.clock()
+end
+function Aurora:AnimTick()
+	local pal = ANIM.pal
+	if not pal then return nil end
+	local t = (os.clock() - ANIM.t0) * 0.06 * ANIM.speed
+	local c, c2 = palSample(pal, t), palSample(pal, t + 0.3)
+	Aurora:SetAccent(c, false, c2)
+	ANIM.n = ANIM.n + 1
+	if ANIM.bg and ANIM.n % 4 == 0 then
+		local b = palSample(pal, t + 0.6)
+		Aurora:UpdateThemeColor("bg0", tintBG(b, 0.18, 0.8))
+		Aurora:UpdateThemeColor("bg1", tintBG(palSample(pal, t + 0.85), 0.07, 0.85))
+		Aurora:UpdateThemeColor("side", tintBG(b, 0.1, 0.75))
+	end
+	return c, c2
+end
+end
+
 function Aurora:ResetTheme()
+	Aurora:StopAnimTheme(false)
 	for k, v in pairs(DEFAULT_T) do
 		T[k] = v
 		for _, fn in ipairs(themeHooks) do fn(k, v) end
@@ -456,6 +524,15 @@ function Aurora:CreateWindow(titleText, subtitle)
 	local blob2 = new("Frame", { Size = UDim2.fromOffset(340, 340), Position = UDim2.new(1, -180, 1, -150), BackgroundTransparency = 0.92, BorderSizePixel = 0 }, { corner(170) })
 	onAccent(function(a, b) blob1.BackgroundColor3 = a blob2.BackgroundColor3 = b end)
 	blob1.Parent, blob2.Parent = bgLayer, bgLayer
+	-- hareketli temada arka planda akan aurora seritleri
+	local auroraBands = {}
+	for i = 1, 3 do
+		local f = new("Frame", { Size = UDim2.new(1.4, 0, 0, 130), AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0.2 + i * 0.25, 0), Rotation = ({ -8, 6, -4 })[i], BackgroundColor3 = Color3.new(1, 1, 1), BackgroundTransparency = 0.88, BorderSizePixel = 0, Visible = false }, { corner(65) })
+		local g = new("UIGradient", { Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.3, 0), NumberSequenceKeypoint.new(0.7, 0), NumberSequenceKeypoint.new(1, 1) }) })
+		g.Parent = f
+		f.Parent = bgLayer
+		auroraBands[i] = { f, g }
+	end
 
 	local sideBar = new("Frame", { Size = UDim2.new(0, SIDE, 1, -TOP - STATUS), Position = UDim2.fromOffset(0, TOP), BackgroundColor3 = T.side, BackgroundTransparency = 0.25, BorderSizePixel = 0 })
 	sideBar.Parent = bgLayer
@@ -481,8 +558,23 @@ function Aurora:CreateWindow(titleText, subtitle)
 	bStroke.Parent = border
 	border.Parent = holder
 	table.insert(conns, RunService.Heartbeat:Connect(function()
-		bGrad.Rotation = (os.clock() * 45) % 360
-		if isRainbowAccent then
+		local tt = os.clock()
+		bGrad.Rotation = (tt * 45) % 360
+		blob1.Position = UDim2.fromOffset(-140 + math.sin(tt * 0.3) * 40, -170 + math.cos(tt * 0.25) * 30)
+		blob2.Position = UDim2.new(1, -180 + math.sin(tt * 0.27 + 1) * 40, 1, -150 + math.cos(tt * 0.3) * 30)
+		local ac, ac2 = Aurora:AnimTick()
+		for i, bd in ipairs(auroraBands) do
+			local on = ac ~= nil
+			if bd[1].Visible ~= on then bd[1].Visible = on end
+			if on then
+				bd[1].Position = UDim2.new(0.5, math.sin(tt * 0.4 + i * 2) * 70, 0.15 + i * 0.27 + math.sin(tt * 0.5 + i) * 0.06, 0)
+				bd[1].Rotation = ({ -8, 6, -4 })[i] + math.sin(tt * 0.3 + i) * 6
+				bd[2].Color = i % 2 == 0 and ColorSequence.new(ac2, ac) or ColorSequence.new(ac, ac2)
+			end
+		end
+		if ac then
+			-- hareketli tema acikken
+		elseif isRainbowAccent then
 			local rc = Color3.fromHSV((os.clock() * 0.25) % 1, 0.85, 1)
 			Aurora:SetAccent(rc, false)
 		end
@@ -1376,24 +1468,88 @@ function Aurora:CreateWindow(titleText, subtitle)
 			-- PREMIUM kilidi: bolum gorunur kalir, kontroller acilmaz; basinca "Premium'da mevcut" uyarisi cikar
 			if PREMIUM.Locked[sid] and not PREMIUM.Owned then
 				local GOLD = Color3.fromRGB(255, 190, 60)
+				local GOLD_SEQ = ColorSequence.new({
+					ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 168, 38)),
+					ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 238, 176)),
+					ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 168, 38)),
+				})
+				local DARKTXT = Color3.fromRGB(34, 24, 4)
+				-- tek bir dongu butun altin parlamalari (shimmer) kaydirir
+				if not PREMIUM.shine then
+					PREMIUM.shine = {}
+					RunService.Heartbeat:Connect(function()
+						local off = Vector2.new(((os.clock() * 0.45) % 2.4) - 1.2, 0)
+						for i = #PREMIUM.shine, 1, -1 do
+							local g = PREMIUM.shine[i]
+							if g.Parent then g.Offset = off else table.remove(PREMIUM.shine, i) end
+						end
+					end)
+				end
+				local function goldPill(w, h, txt, ts, z)
+					local p = new("Frame", { Size = UDim2.fromOffset(w, h), BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0, ZIndex = z }, { corner(h / 2) })
+					local g = new("UIGradient", { Color = GOLD_SEQ, Rotation = 20 })
+					g.Parent = p
+					table.insert(PREMIUM.shine, g)
+					label({ Text = txt, Font = Enum.Font.GothamBlack, TextSize = ts, TextColor3 = DARKTXT, TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.fromScale(1, 1), ZIndex = z + 1 }).Parent = p
+					return p
+				end
+				-- kucuk kilit ikonu (govde + kanca + anahtar deligi)
+				local function lockIcon(sc, z)
+					local f = new("Frame", { Size = UDim2.fromOffset(math.floor(14 * sc), math.floor(16 * sc)), BackgroundTransparency = 1, ZIndex = z })
+					local sh = new("Frame", { Size = UDim2.fromOffset(math.floor(10 * sc), math.floor(10 * sc)), Position = UDim2.fromOffset(math.floor(2 * sc), 0), BackgroundTransparency = 1, ZIndex = z }, { corner(math.floor(5 * sc)), stroke(GOLD, math.max(1, math.floor(2 * sc)), 0) })
+					sh.Parent = f
+					local body = new("Frame", { Size = UDim2.fromOffset(math.floor(14 * sc), math.floor(9 * sc)), Position = UDim2.fromOffset(0, math.floor(7 * sc)), BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0, ZIndex = z + 1 }, { corner(math.floor(3 * sc)) })
+					local g = new("UIGradient", { Color = GOLD_SEQ, Rotation = 60 })
+					g.Parent = body
+					table.insert(PREMIUM.shine, g)
+					new("Frame", { Size = UDim2.fromOffset(math.max(2, math.floor(2 * sc)), math.floor(4 * sc)), AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), BackgroundColor3 = DARKTXT, BorderSizePixel = 0, ZIndex = z + 2 }).Parent = body
+					body.Parent = f
+					return f
+				end
 				local lastWarn = 0
 				local function warnPremium(what)
 					if os.clock() - lastWarn < 1.2 then return end
 					lastWarn = os.clock()
-					Aurora:Notify("Premium Feature", tostring(what) .. " is available in Premium only.", 3.5, "warn")
+					Aurora:Notify("Premium Feature", tostring(what) .. " is part of Aurora X Premium. Upgrade to unlock it.", 4, "warn")
 				end
-				local ptag = new("Frame", { Size = UDim2.fromOffset(62, 16), Position = UDim2.new(1, -108, 0.5, -8), BackgroundColor3 = GOLD, BorderSizePixel = 0 }, { corner(8) })
-				label({ Text = "PREMIUM", Font = Enum.Font.GothamBlack, TextSize = 9, TextColor3 = Color3.fromRGB(30, 22, 4), TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.fromScale(1, 1) }).Parent = ptag
+				-- bolum basligi: altin cerceve + kilitli PREMIUM rozeti
+				stroke(GOLD, 1, 0.78).Parent = card
+				local ptag = goldPill(80, 18, "PREMIUM", 9, 3)
+				ptag.Position = UDim2.new(1, -128, 0.5, -9)
+				local tl = lockIcon(0.6, 4)
+				tl.Position = UDim2.fromOffset(6, 4)
+				tl.Parent = ptag
 				ptag.Parent = head
 				local cbIdx = { AddToggle = 3, AddSlider = 5, AddButton = 2, AddDropdown = 4, AddKeybind = 3, AddColorPicker = 3, AddTextbox = 3 }
 				local function noop() end
 				local function cover(r, what)
 					if not r then return end
-					local ov = new("TextButton", { Text = "", Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.5, AutoButtonColor = false, Active = true, ZIndex = 60, BorderSizePixel = 0 }, { corner(10) })
-					local pill = new("Frame", { Size = UDim2.fromOffset(64, 18), AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -10, 0.5, 0), BackgroundColor3 = GOLD, BorderSizePixel = 0, ZIndex = 61 }, { corner(9) })
-					label({ Text = "PREMIUM", Font = Enum.Font.GothamBlack, TextSize = 9, TextColor3 = Color3.fromRGB(30, 22, 4), TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.fromScale(1, 1), ZIndex = 62 }).Parent = pill
+					local ov = new("TextButton", { Text = "", Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(1, 1, 1), BackgroundTransparency = 0.12, AutoButtonColor = false, Active = true, ZIndex = 60, BorderSizePixel = 0, ClipsDescendants = true }, { corner(10) })
+					new("UIGradient", { Color = ColorSequence.new(Color3.fromRGB(10, 10, 16), Color3.fromRGB(52, 38, 10)), Rotation = 0 }).Parent = ov
+					local st = stroke(GOLD, 1, 0.7)
+					st.Parent = ov
+					local ic = lockIcon(1, 61)
+					ic.AnchorPoint = Vector2.new(0, 0.5)
+					ic.Position = UDim2.new(0, 14, 0.5, 0)
+					ic.Parent = ov
+					label({ Text = "Unlock with Premium", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = GOLD, Size = UDim2.new(1, -150, 1, 0), Position = UDim2.fromOffset(38, 0), ZIndex = 61 }).Parent = ov
+					local pill = goldPill(70, 20, "PREMIUM", 10, 61)
+					pill.AnchorPoint = Vector2.new(1, 0.5)
+					pill.Position = UDim2.new(1, -12, 0.5, 0)
 					pill.Parent = ov
-					ov.MouseButton1Click:Connect(function() warnPremium(what) end)
+					ov.MouseEnter:Connect(function()
+						tween(st, 0.18, { Transparency = 0.1 })
+						tween(pill, 0.18, { Size = UDim2.fromOffset(76, 22) })
+					end)
+					ov.MouseLeave:Connect(function()
+						tween(st, 0.25, { Transparency = 0.7 })
+						tween(pill, 0.25, { Size = UDim2.fromOffset(70, 20) })
+					end)
+					ov.MouseButton1Click:Connect(function()
+						tween(pill, 0.08, { Size = UDim2.fromOffset(64, 18) })
+						task.delay(0.08, function() tween(pill, 0.2, { Size = UDim2.fromOffset(76, 22) }, Enum.EasingStyle.Back) end)
+						warnPremium(what)
+					end)
 					ov.Parent = r
 				end
 				for nm, ci in pairs(cbIdx) do
@@ -1426,73 +1582,266 @@ function Aurora:CreateWindow(titleText, subtitle)
 		------------------------------------------------ DASHBOARD
 		function Tab:AddDashboard()
 			local MarketplaceService = game:GetService("MarketplaceService")
-			local rnd = Random.new(7)
 
-			local hero = new("Frame", { Size = UDim2.new(1, 0, 0, 176), BackgroundTransparency = 1, BorderSizePixel = 0, LayoutOrder = -100 })
+			local hero = new("Frame", { Size = UDim2.new(1, 0, 0, 200), BackgroundTransparency = 1, BorderSizePixel = 0, LayoutOrder = -100 })
 			local decor = new("CanvasGroup", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, BorderSizePixel = 0 }, { corner(18) })
 			decor.Parent = hero
-			local heroBg = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0 })
-			accentGrad(heroBg, 20)
-			heroBg.Parent = decor
-			new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(0, 0, 0), BorderSizePixel = 0 }, {
-				new("UIGradient", { Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.4), NumberSequenceKeypoint.new(1, 0.9) }) }),
+			local WHITE = Color3.new(1, 1, 1)
+			local GOLDS = ColorSequence.new({
+				ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 168, 38)),
+				ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 238, 176)),
+				ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 168, 38)),
+			})
+
+			-- gece gokyuzu
+			local sky = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = WHITE, BorderSizePixel = 0 })
+			new("UIGradient", { Rotation = 90, Color = ColorSequence.new(Color3.fromRGB(5, 7, 18), Color3.fromRGB(20, 13, 44)) }).Parent = sky
+			sky.Parent = decor
+
+			-- yildizlar (parlayip soner)
+			local starsLayer = new("Frame", { Size = UDim2.new(1, 24, 1, 12), Position = UDim2.fromOffset(-12, -6), BackgroundTransparency = 1 })
+			starsLayer.Parent = decor
+			local rnd = Random.new(11)
+			local stars = {}
+			for _ = 1, 46 do
+				local sz = rnd:NextInteger(1, 3)
+				local f = new("Frame", { Size = UDim2.fromOffset(sz, sz), Position = UDim2.fromScale(rnd:NextNumber(), rnd:NextNumber() * 0.8), BackgroundColor3 = WHITE, BackgroundTransparency = 0.5, BorderSizePixel = 0 }, { corner(2) })
+				f.Parent = starsLayer
+				table.insert(stars, { f, rnd:NextNumber() * 6.28, rnd:NextNumber(0.8, 2.4), rnd:NextNumber(0.25, 0.6) })
+			end
+
+			-- aurora seritleri (3 sert, ust uste bindirilmis yumusak kusaklar)
+			local ribbonLayer = new("Frame", { Size = UDim2.new(1, 60, 1, 30), Position = UDim2.fromOffset(-30, -15), BackgroundTransparency = 1 })
+			ribbonLayer.Parent = decor
+			local ribbons = {}
+			local ribbonCols = { Color3.fromRGB(60, 255, 190), Color3.fromRGB(150, 90, 255), Color3.fromRGB(255, 80, 170) }
+			local function ribbon(idx, ybase, rot, speed)
+				local set = { frames = {}, y = ybase, rot = rot, sp = speed, ph = idx * 1.7 }
+				for k = 1, 3 do
+					local h = ({ 96, 58, 26 })[k]
+					local tr = ({ 0.93, 0.85, 0.7 })[k]
+					local f = new("Frame", { Size = UDim2.new(1.5, 0, 0, h), AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, ybase, 0), Rotation = rot, BackgroundColor3 = WHITE, BackgroundTransparency = tr, BorderSizePixel = 0 }, { corner(math.floor(h / 2)) })
+					local g = new("UIGradient", {})
+					g.Parent = f
+					f.Parent = ribbonLayer
+					table.insert(set.frames, { f, g })
+				end
+				table.insert(ribbons, set)
+				return set
+			end
+			local rb1, rb2, rb3 = ribbon(1, 0.34, -9, 0.55), ribbon(2, 0.5, 7, 0.4), ribbon(3, 0.22, -3, 0.7)
+			local function paintRibbons(a, b)
+				local sets = { { rb1, a, ribbonCols[1], b }, { rb2, ribbonCols[2], b, ribbonCols[3] }, { rb3, ribbonCols[1], a, ribbonCols[2] } }
+				for _, s in ipairs(sets) do
+					for _, fg in ipairs(s[1].frames) do
+						fg[2].Color = ColorSequence.new({ ColorSequenceKeypoint.new(0, s[2]), ColorSequenceKeypoint.new(0.5, s[3]), ColorSequenceKeypoint.new(1, s[4]) })
+						fg[2].Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.3, 0), NumberSequenceKeypoint.new(0.7, 0), NumberSequenceKeypoint.new(1, 1) })
+					end
+				end
+			end
+			onAccent(function(a, b) paintRibbons(a, b) end)
+
+			-- synthwave zemin: ufka kacan izgara
+			local floorH = 82
+			local floor = new("Frame", { Size = UDim2.new(1, 0, 0, floorH), AnchorPoint = Vector2.new(0, 1), Position = UDim2.fromScale(0, 1), BackgroundTransparency = 1, ClipsDescendants = true })
+			local fade = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = WHITE, BorderSizePixel = 0, ZIndex = 5 })
+			new("UIGradient", { Rotation = 90, Color = ColorSequence.new(Color3.fromRGB(10, 6, 26), Color3.fromRGB(6, 4, 16)), Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(1, 0.35) }) }).Parent = fade
+			fade.Parent = floor
+			local vlines = {}
+			for i = -6, 6 do
+				local ang = i * 11
+				local L = floorH * 2.4
+				local rad = math.rad(ang)
+				local ln = new("Frame", { Size = UDim2.fromOffset(1, L), AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0, 0), Rotation = -ang, BackgroundColor3 = WHITE, BackgroundTransparency = 0.35, BorderSizePixel = 0, ZIndex = 3 })
+				-- ufuk noktasi (0.5, 0) uzerinden asagi dogru acilan cizgi: merkez = V + yon * L/2
+				ln.Position = UDim2.new(0.5, math.sin(rad) * L / 2, 0, math.cos(rad) * L / 2)
+				local g = new("UIGradient", { Rotation = 90, Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.4, 0.55), NumberSequenceKeypoint.new(1, 0.1) }) })
+				g.Parent = ln
+				ln.Parent = floor
+				table.insert(vlines, ln)
+			end
+			local hlines = {}
+			for i = 1, 7 do
+				local hl = new("Frame", { Size = UDim2.new(1, 0, 0, 1), BackgroundColor3 = WHITE, BackgroundTransparency = 0.6, BorderSizePixel = 0, ZIndex = 4 })
+				hl.Parent = floor
+				table.insert(hlines, hl)
+			end
+			local horizon = new("Frame", { Size = UDim2.new(1, 0, 0, 2), Position = UDim2.fromScale(0, 0), BackgroundColor3 = WHITE, BackgroundTransparency = 0.2, BorderSizePixel = 0, ZIndex = 6 })
+			horizon.Parent = floor
+			local horGrad = new("UIGradient", { Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.5, 0), NumberSequenceKeypoint.new(1, 1) }) })
+			horGrad.Parent = horizon
+			onAccent(function(a, b)
+				for _, ln in ipairs(vlines) do ln.BackgroundColor3 = a end
+				for _, hl in ipairs(hlines) do hl.BackgroundColor3 = b end
+				horizon.BackgroundColor3 = a
+			end)
+			floor.Parent = decor
+
+			-- kenar isigi
+			new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 8 }, { corner(18), stroke(WHITE, 1, 0.82) }).Parent = decor
+			new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(0, 0, 0), BorderSizePixel = 0, ZIndex = 7 }, {
+				new("UIGradient", { Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.35), NumberSequenceKeypoint.new(0.6, 0.85), NumberSequenceKeypoint.new(1, 1) }) }),
 			}).Parent = decor
 
-			for i = 1, 16 do
-				new("Frame", { Size = UDim2.new(0, 1, 1, 0), Position = UDim2.fromOffset(i * 40, 0), BackgroundColor3 = Color3.new(1, 1, 1), BackgroundTransparency = 0.93, BorderSizePixel = 0 }).Parent = decor
+			-- sag taraf: avatar, donen halka, yorungedeki noktalar, nabiz atan isik
+			local avBox = new("Frame", { Size = UDim2.fromOffset(150, 150), AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -26, 0.5, -4), BackgroundTransparency = 1, ZIndex = 10 })
+			local glow1 = new("Frame", { Size = UDim2.fromOffset(150, 150), AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), BackgroundColor3 = accent, BackgroundTransparency = 0.88, BorderSizePixel = 0, ZIndex = 9 }, { corner(75) })
+			local glow2 = new("Frame", { Size = UDim2.fromOffset(120, 120), AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), BackgroundColor3 = accent2, BackgroundTransparency = 0.8, BorderSizePixel = 0, ZIndex = 9 }, { corner(60) })
+			glow1.Parent, glow2.Parent = avBox, avBox
+			onAccent(function(a, b) glow1.BackgroundColor3 = a glow2.BackgroundColor3 = b end)
+			local ring = new("Frame", { Size = UDim2.fromOffset(112, 112), AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), BackgroundTransparency = 1, ZIndex = 11 }, { corner(56) })
+			local ringStroke = new("UIStroke", { Color = WHITE, Thickness = 3, ApplyStrokeMode = Enum.ApplyStrokeMode.Border })
+			local ringGrad = new("UIGradient", {})
+			ringGrad.Parent = ringStroke
+			ringStroke.Parent = ring
+			ring.Parent = avBox
+			onAccent(function(a, b)
+				ringGrad.Color = ColorSequence.new({ ColorSequenceKeypoint.new(0, a), ColorSequenceKeypoint.new(0.35, WHITE), ColorSequenceKeypoint.new(0.65, b), ColorSequenceKeypoint.new(1, a) })
+			end)
+			local face = new("ImageLabel", { Size = UDim2.fromOffset(98, 98), AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), BackgroundColor3 = Color3.fromRGB(16, 18, 28), Image = "", ScaleType = Enum.ScaleType.Crop, ZIndex = 12 }, { corner(49) })
+			face.Parent = avBox
+			task.spawn(function()
+				local ok, img = pcall(function() return Players:GetUserThumbnailAsync(lp.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size420x420) end)
+				if ok and face.Parent then face.Image = img end
+			end)
+			local dots = {}
+			for i = 1, 4 do
+				local d = new("Frame", { Size = UDim2.fromOffset(i == 1 and 8 or 5, i == 1 and 8 or 5), AnchorPoint = Vector2.new(0.5, 0.5), BackgroundColor3 = WHITE, BackgroundTransparency = i == 1 and 0 or 0.3, BorderSizePixel = 0, ZIndex = 13 }, { corner(4) })
+				d.Parent = avBox
+				table.insert(dots, { d, i * 1.57, 0.9 + i * 0.25, 62 + (i % 2) * 8 })
 			end
-			for j = 1, 4 do
-				new("Frame", { Size = UDim2.new(1, 0, 0, 1), Position = UDim2.fromOffset(0, j * 40), BackgroundColor3 = Color3.new(1, 1, 1), BackgroundTransparency = 0.93, BorderSizePixel = 0 }).Parent = decor
-			end
+			avBox.Parent = hero
 
-			local orbs = {}
-			local function orb(size, x, y, ax, ay, sp, tr)
-				local f = new("Frame", { Size = UDim2.fromOffset(size, size), Position = UDim2.fromOffset(x, y), BackgroundColor3 = Color3.new(1, 1, 1), BackgroundTransparency = tr, BorderSizePixel = 0 }, { corner(math.floor(size / 2)) })
-				f.Parent = decor
-				table.insert(orbs, { f, x, y, ax, ay, sp })
+			-- sol taraf: selam, dev logo, karsilama, daktilo yazisi
+			local hr = tonumber(os.date("%H")) or 12
+			local greet = hr < 5 and "GOOD NIGHT" or hr < 12 and "GOOD MORNING" or hr < 18 and "GOOD AFTERNOON" or "GOOD EVENING"
+			local greetL = label({ Text = greet, Font = Enum.Font.GothamBold, TextSize = 11, TextTransparency = 0.2, Size = UDim2.new(1, -200, 0, 14), Position = UDim2.fromOffset(26, 18), TextColor3 = T.text, ZIndex = 10 })
+			greetL.Parent = hero
+			local title = label({ Text = "AURORA X", Font = Enum.Font.GothamBlack, TextSize = 42, TextColor3 = WHITE, TextTransparency = 1, Size = UDim2.new(1, -200, 0, 48), Position = UDim2.fromOffset(6, 34), ZIndex = 10 })
+			local titleGrad = new("UIGradient", {})
+			titleGrad.Parent = title
+			onAccent(function(a, b)
+				titleGrad.Color = ColorSequence.new({ ColorSequenceKeypoint.new(0, a), ColorSequenceKeypoint.new(0.5, WHITE), ColorSequenceKeypoint.new(1, b) })
+			end)
+			title.Parent = hero
+			local welcome = label({ Text = 'Welcome back, <b>' .. lp.DisplayName .. '</b>', RichText = true, Font = Enum.Font.GothamMedium, TextSize = 15, TextTransparency = 1, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.new(1, -200, 0, 20), Position = UDim2.fromOffset(26, 86), TextColor3 = T.text, ZIndex = 10 })
+			welcome.Parent = hero
+			local tagL = label({ Text = "", TextSize = 12, TextTransparency = 0.2, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.new(1, -200, 0, 16), Position = UDim2.fromOffset(26, 110), TextColor3 = T.sub, ZIndex = 10 })
+			tagL.Parent = hero
+			tween(title, 0.9, { TextTransparency = 0, Position = UDim2.fromOffset(26, 34) })
+			task.delay(0.25, function() if welcome.Parent then tween(welcome, 0.7, { TextTransparency = 0.05 }) end end)
+			task.spawn(function()
+				local msg = "Aurora X is ready. Pick a tab to get started."
+				task.wait(0.6)
+				for i = 1, #msg do
+					if not tagL.Parent then return end
+					tagL.Text = string.sub(msg, 1, i) .. (i < #msg and "|" or "")
+					task.wait(0.022)
+				end
+			end)
+
+			-- cam rozetler
+			local chipX = 26
+			local function chip(txt, w, gold, dotColor)
+				local c = new("Frame", { Size = UDim2.fromOffset(w, 26), Position = UDim2.fromOffset(chipX, 150), BackgroundColor3 = gold and WHITE or Color3.new(0, 0, 0), BackgroundTransparency = gold and 0 or 0.4, BorderSizePixel = 0, ZIndex = 10 }, { corner(13) })
+				if gold then
+					local g = new("UIGradient", { Color = GOLDS, Rotation = 20 })
+					g.Parent = c
+					table.insert(ribbons, { goldGrad = g })
+				else
+					stroke(WHITE, 1, 0.82).Parent = c
+				end
+				local off = 0
+				if dotColor then
+					local dot = new("Frame", { Size = UDim2.fromOffset(7, 7), Position = UDim2.fromOffset(11, 9.5), BackgroundColor3 = dotColor, BorderSizePixel = 0, ZIndex = 11 }, { corner(4) })
+					dot.Parent = c
+					table.insert(ribbons, { pulse = dot })
+					off = 12
+				end
+				label({ Text = txt, RichText = true, Font = Enum.Font.GothamBold, TextSize = 10, TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.new(1, -off, 1, 0), Position = UDim2.fromOffset(off, 0), TextColor3 = gold and Color3.fromRGB(34, 24, 4) or T.text, ZIndex = 11 }).Parent = c
+				c.Parent = hero
+				chipX = chipX + w + 8
 			end
-			orb(130, 300, -40, 14, 10, 0.7, 0.88)
-			orb(70, 190, 104, 10, 14, 0.9, 0.86)
-			orb(46, 470, 24, 8, 8, 1.2, 0.8)
+			chip("ONLINE", 82, false, Color3.fromRGB(74, 222, 155))
+			chip(PREMIUM.Owned and "PREMIUM  v2.0" or "FREE  v2.0", PREMIUM.Owned and 108 or 90, false)
+			if not PREMIUM.Owned then chip("UNLOCK PREMIUM", 118, true) end
+			hero.Parent = scroll
+
+			-- tek dongu: butun animasyonlar (sayfa gorunmuyorsa durur)
+			local px, py = 0, 0
+			local lastClk = ""
 			table.insert(conns, RunService.Heartbeat:Connect(function()
+				if not hero.Parent or not scroll.Visible then return end
+				local sz = hero.AbsoluteSize
+				if sz.X < 10 then return end
 				local t = os.clock()
-				for _, o in ipairs(orbs) do
-					o[1].Position = UDim2.fromOffset(o[2] + math.sin(t * o[6]) * o[4], o[3] + math.cos(t * o[6] * 0.8) * o[5])
+				local tx, ty = 0, 0
+				if UIS.MouseEnabled then
+					local m = UIS:GetMouseLocation()
+					local ap = hero.AbsolutePosition
+					tx = math.clamp((m.X - ap.X) / sz.X - 0.5, -0.5, 0.5)
+					ty = math.clamp((m.Y - ap.Y) / sz.Y - 0.5, -0.5, 0.5)
+				else
+					tx, ty = math.sin(t * 0.3) * 0.3, math.cos(t * 0.25) * 0.2
+				end
+				px = px + (tx - px) * 0.07
+				py = py + (ty - py) * 0.07
+				starsLayer.Position = UDim2.fromOffset(-12 - px * 14, -6 - py * 8)
+				ribbonLayer.Position = UDim2.fromOffset(-30 - px * 46, -15 - py * 18)
+				for _, st in ipairs(stars) do
+					st[1].BackgroundTransparency = math.clamp(0.55 - st[4] * math.sin(t * st[3] + st[2]), 0.05, 0.95)
+				end
+				for _, rb in ipairs(ribbons) do
+					if rb.frames then
+						for k, fg in ipairs(rb.frames) do
+							local w = t * rb.sp + rb.ph + k * 0.35
+							fg[1].Position = UDim2.new(0.5, math.sin(w * 0.8) * 26, rb.y + math.sin(w) * 0.07, 0)
+							fg[1].Rotation = rb.rot + math.sin(w * 0.7) * 5
+							fg[2].Offset = Vector2.new(math.sin(w * 0.6) * 0.25, 0)
+						end
+					elseif rb.goldGrad then
+						rb.goldGrad.Offset = Vector2.new(((t * 0.5) % 2.4) - 1.2, 0)
+					elseif rb.pulse then
+						rb.pulse.BackgroundTransparency = 0.45 - 0.45 * math.sin(t * 3)
+					end
+				end
+				for i, hl in ipairs(hlines) do
+					local p = (t * 0.22 + i / #hlines) % 1
+					hl.Position = UDim2.fromOffset(0, math.floor(p * p * floorH))
+					hl.BackgroundTransparency = 0.8 - 0.65 * p
+				end
+				horGrad.Offset = Vector2.new(math.sin(t * 0.8) * 0.2, 0)
+				ringGrad.Rotation = (t * 80) % 360
+				glow1.BackgroundTransparency = 0.88 + 0.07 * math.sin(t * 1.6)
+				glow2.BackgroundTransparency = 0.8 + 0.08 * math.sin(t * 2.2 + 1)
+				for _, d in ipairs(dots) do
+					local a = t * d[3] + d[2]
+					d[1].Position = UDim2.new(0.5, math.cos(a) * d[4], 0.5, math.sin(a) * d[4] * 0.92)
+				end
+				titleGrad.Offset = Vector2.new(((t * 0.35) % 2.6) - 1.3, 0)
+				local clk = os.date("%H:%M")
+				if clk ~= lastClk then
+					lastClk = clk
+					greetL.Text = greet .. "   -   " .. clk
 				end
 			end))
 
-			for _ = 1, 22 do
-				local sz = rnd:NextInteger(2, 3)
-				new("Frame", { Size = UDim2.fromOffset(sz, sz), Position = UDim2.fromScale(rnd:NextNumber(), rnd:NextNumber()), BackgroundColor3 = Color3.new(1, 1, 1), BackgroundTransparency = rnd:NextNumber(0.4, 0.8), BorderSizePixel = 0 }, { corner(2) }).Parent = decor
-			end
-
-			new("Frame", { Size = UDim2.fromOffset(160, 160), AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -14, 0.5, 0), BackgroundColor3 = Color3.new(1, 1, 1), BackgroundTransparency = 0.88, BorderSizePixel = 0 }, { corner(80) }).Parent = decor
-			local bust = new("ImageLabel", { Size = UDim2.fromOffset(176, 176), AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, -6, 1, 0), BackgroundTransparency = 1, Image = "", ZIndex = 3 })
-			bust.Parent = hero
+			-- gokten kayan yildizlar
 			task.spawn(function()
-				local ok, img = pcall(function() return Players:GetUserThumbnailAsync(lp.UserId, Enum.ThumbnailType.AvatarBust, Enum.ThumbnailSize.Size420x420) end)
-				if not ok then
-					ok, img = pcall(function() return Players:GetUserThumbnailAsync(lp.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size420x420) end)
+				local r2 = Random.new(os.time())
+				while hero.Parent do
+					task.wait(r2:NextNumber(2.2, 4.6))
+					if scroll.Visible and hero.AbsoluteSize.X > 10 then
+						local sx = r2:NextNumber(0.15, 0.7)
+						local sy = r2:NextNumber(0.02, 0.25)
+						local s = new("Frame", { Size = UDim2.fromOffset(110, 2), AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.fromScale(sx, sy), Rotation = 28, BackgroundColor3 = WHITE, BorderSizePixel = 0, ZIndex = 4 }, { corner(1) })
+						new("UIGradient", { Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(1, 0) }) }).Parent = s
+						s.Parent = decor
+						tween(s, 0.85, { Position = UDim2.fromScale(sx + 0.3, sy + 0.5), BackgroundTransparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+						task.delay(0.9, function() s:Destroy() end)
+					end
 				end
-				if ok and bust.Parent then bust.Image = img end
 			end)
-
-			local hr = tonumber(os.date("%H")) or 12
-			local greet = hr < 5 and "GOOD NIGHT" or hr < 12 and "GOOD MORNING" or hr < 18 and "GOOD AFTERNOON" or "GOOD EVENING"
-			label({ Text = greet, Font = Enum.Font.GothamBold, TextSize = 11, TextTransparency = 0.25, Size = UDim2.new(1, -230, 0, 14), Position = UDim2.fromOffset(24, 22), TextColor3 = T.text }).Parent = hero
-			label({ Text = "Welcome back,", Font = Enum.Font.GothamMedium, TextSize = 14, TextTransparency = 0.1, Size = UDim2.new(1, -230, 0, 18), Position = UDim2.fromOffset(24, 40), TextColor3 = T.text }).Parent = hero
-			label({ Text = lp.DisplayName, Font = Enum.Font.GothamBlack, TextSize = 30, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.new(1, -230, 0, 38), Position = UDim2.fromOffset(24, 58), TextColor3 = T.text }).Parent = hero
-			label({ Text = "Aurora X is ready. Pick a tab to get started.", TextSize = 12, TextTransparency = 0.15, TextTruncate = Enum.TextTruncate.AtEnd, Size = UDim2.new(1, -230, 0, 16), Position = UDim2.fromOffset(24, 100), TextColor3 = T.text }).Parent = hero
-
-			local function chip(txt, x, w)
-				local c = new("Frame", { Size = UDim2.fromOffset(w, 24), Position = UDim2.fromOffset(x, 130), BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 0.5, BorderSizePixel = 0 }, { corner(12) })
-				label({ Text = txt, RichText = true, Font = Enum.Font.GothamBold, TextSize = 10, TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.fromScale(1, 1), TextColor3 = T.text }).Parent = c
-				c.Parent = hero
-			end
-			chip('<font color="#4ADE9B">*</font>  ONLINE', 24, 84)
-			chip(PREMIUM.Owned and "PREMIUM" or "FREE", 116, PREMIUM.Owned and 76 or 56)
-			chip("v2.0", PREMIUM.Owned and 200 or 180, 52)
-			hero.Parent = scroll
 
 			local statsRow = new("Frame", { Size = UDim2.new(1, 0, 0, 92), BackgroundTransparency = 1, LayoutOrder = -99 }, {
 				new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 10), SortOrder = Enum.SortOrder.LayoutOrder }),
@@ -1618,37 +1967,318 @@ function Aurora:CreateWindow(titleText, subtitle)
 	end
 
 	function Window:Open()
-		local splash = new("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(300, 170), BackgroundColor3 = T.bg0, BorderSizePixel = 0 }, { corner(20), stroke(accent, 1.5, 0.2) })
-		onThemeChange(function(k, c) if k == "bg0" then splash.BackgroundColor3 = c end end)
-		local sScale = new("UIScale", { Scale = 0.6 })
-		sScale.Parent = splash
-		local sl = new("Frame", { Size = UDim2.fromOffset(52, 52), AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 22), BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0 }, { corner(16) })
-		accentGrad(sl, 45)
-		label({ Text = "A", Font = Enum.Font.GothamBlack, TextSize = 28, TextColor3 = Color3.new(1, 1, 1), TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.fromScale(1, 1) }).Parent = sl
-		sl.Parent = splash
-		label({ Text = string.upper(titleText or "Aurora X"), Font = Enum.Font.GothamBlack, TextSize = 15, TextColor3 = T.text, TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.new(1, 0, 0, 20), Position = UDim2.fromOffset(0, 84) }).Parent = splash
-		local st = label({ Text = "Loading modules...", TextSize = 11, TextColor3 = T.dim, TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.new(1, 0, 0, 14), Position = UDim2.fromOffset(0, 106) })
-		st.Parent = splash
-		local tr = new("Frame", { Size = UDim2.new(1, -56, 0, 5), Position = UDim2.fromOffset(28, 136), BackgroundColor3 = T.bg1, BorderSizePixel = 0 }, { corner(3) })
-		onThemeChange(function(k, c) if k == "bg1" then tr.BackgroundColor3 = c end end)
-		local fl = new("Frame", { Size = UDim2.fromScale(0, 1), BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0 }, { corner(3) })
-		accentGrad(fl, 0)
-		fl.Parent = tr
-		tr.Parent = splash
-		splash.Parent = gui
+		local WHITE = Color3.new(1, 1, 1)
+		local PINK, TEAL, VIOLET = Color3.fromRGB(255, 80, 170), Color3.fromRGB(60, 255, 190), Color3.fromRGB(150, 90, 255)
+		local vp = gui.AbsoluteSize
+		local fit = math.clamp(math.min(vp.X / 560, vp.Y / 350), 0.55, 1.15)
+		local backdrop = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromRGB(6, 6, 16), BackgroundTransparency = 1, BorderSizePixel = 0 })
+		backdrop.Parent = gui
+		tween(backdrop, 0.5, { BackgroundTransparency = 0.38 })
 
-		tween(sScale, 0.5, { Scale = 1 }, Enum.EasingStyle.Back)
-		task.spawn(function()
-			local steps = { { "Loading modules...", 0.35 }, { "Applying theme...", 0.7 }, { "Almost there...", 1 } }
-			for _, s in ipairs(steps) do
-				st.Text = s[1]
-				tween(fl, 0.4, { Size = UDim2.fromScale(s[2], 1) })
-				task.wait(0.45)
+		-- NOT: UIGradient dogrudan CanvasGroup'a konursa icindeki HER SEYI boyar (siyah gorunme hatasi); arka plan ayri bir Frame'de
+		local card = new("CanvasGroup", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(480, 300), BackgroundColor3 = Color3.fromRGB(20, 14, 48), BorderSizePixel = 0, GroupTransparency = 1 }, { corner(22) })
+		local cScale = new("UIScale", { Scale = fit * 0.8 })
+		cScale.Parent = card
+		local bgF = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = WHITE, BorderSizePixel = 0 })
+		new("UIGradient", { Rotation = 90, Color = ColorSequence.new({
+			ColorSequenceKeypoint.new(0, Color3.fromRGB(14, 18, 52)),
+			ColorSequenceKeypoint.new(0.55, Color3.fromRGB(38, 20, 82)),
+			ColorSequenceKeypoint.new(1, Color3.fromRGB(78, 24, 96)),
+		}) }).Parent = bgF
+		bgF.Parent = card
+
+		-- renkli isik kureleri (yavasca suzulur)
+		local blobs = {}
+		local function blob(size, x, y, col, tr, sp, ph)
+			local f = new("Frame", { Size = UDim2.fromOffset(size, size), AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(x, y), BackgroundColor3 = col, BackgroundTransparency = tr, BorderSizePixel = 0 }, { corner(math.floor(size / 2)) })
+			f.Parent = card
+			table.insert(blobs, { f, x, y, sp, ph, tr })
+			return f
+		end
+		local bA = blob(300, 0.5, 0.1, accent, 0.78, 0.5, 0)
+		local bB = blob(260, 0.95, 0.95, PINK, 0.82, 0.4, 2)
+		local bC = blob(230, 0.02, 0.9, TEAL, 0.86, 0.6, 4)
+		onAccent(function(a, b) bA.BackgroundColor3 = a end)
+
+		-- yildizlar
+		local rnd = Random.new(os.time())
+		local stars = {}
+		for _ = 1, 40 do
+			local sz = rnd:NextInteger(1, 3)
+			local f = new("Frame", { Size = UDim2.fromOffset(sz, sz), Position = UDim2.fromScale(rnd:NextNumber(), rnd:NextNumber()), BackgroundColor3 = WHITE, BackgroundTransparency = 0.5, BorderSizePixel = 0 }, { corner(2) })
+			f.Parent = card
+			table.insert(stars, { f, rnd:NextNumber() * 6.28, rnd:NextNumber(1, 3) })
+		end
+
+		-- aurora seritleri
+		local rbs = {}
+		for i = 1, 3 do
+			local set = { frames = {}, y = 0.1 + i * 0.1, rot = ({ -10, 8, -4 })[i], sp = 0.5 + i * 0.15, ph = i * 1.9 }
+			for k = 1, 3 do
+				local h = ({ 90, 54, 24 })[k]
+				local f = new("Frame", { Size = UDim2.new(1.5, 0, 0, h), AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, set.y, 0), Rotation = set.rot, BackgroundColor3 = WHITE, BackgroundTransparency = ({ 0.86, 0.72, 0.52 })[k], BorderSizePixel = 0 }, { corner(math.floor(h / 2)) })
+				local g = new("UIGradient", { Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.3, 0), NumberSequenceKeypoint.new(0.7, 0), NumberSequenceKeypoint.new(1, 1) }) })
+				g.Parent = f
+				f.Parent = card
+				table.insert(set.frames, { f, g })
 			end
-			tween(sScale, 0.3, { Scale = 0.8 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
-			tween(splash, 0.3, { BackgroundTransparency = 1 })
-			task.wait(0.25)
-			splash:Destroy()
+			table.insert(rbs, set)
+		end
+		onAccent(function(a, b)
+			local pal = { { a, TEAL, b }, { VIOLET, b, PINK }, { TEAL, a, VIOLET } }
+			for i, set in ipairs(rbs) do
+				for _, fg in ipairs(set.frames) do
+					fg[2].Color = ColorSequence.new({ ColorSequenceKeypoint.new(0, pal[i][1]), ColorSequenceKeypoint.new(0.5, pal[i][2]), ColorSequenceKeypoint.new(1, pal[i][3]) })
+				end
+			end
+		end)
+
+		-- logonun arkasinda donen isik huzmeleri
+		local rayHolder = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1 })
+		local rays = {}
+		for i = 1, 6 do
+			for _, w in ipairs({ 3, 16 }) do
+				local r = new("Frame", { Size = UDim2.fromOffset(w, 440), AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0, 62), Rotation = i * 30, BackgroundColor3 = accent, BackgroundTransparency = w == 3 and 0.55 or 0.9, BorderSizePixel = 0 })
+				new("UIGradient", { Rotation = 90, Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.5, 0), NumberSequenceKeypoint.new(1, 1) }) }).Parent = r
+				r.Parent = rayHolder
+				table.insert(rays, { r, i * 30 })
+			end
+		end
+		onAccent(function(a) for _, r in ipairs(rays) do r[1].BackgroundColor3 = a end end)
+		rayHolder.Parent = card
+
+		-- yukselen parcaciklar
+		local parts = {}
+		for _ = 1, 22 do
+			local sz = rnd:NextInteger(2, 5)
+			local col = ({ WHITE, TEAL, PINK, VIOLET })[rnd:NextInteger(1, 4)]
+			local f = new("Frame", { Size = UDim2.fromOffset(sz, sz), BackgroundColor3 = col, BackgroundTransparency = 1, BorderSizePixel = 0 }, { corner(3) })
+			f.Parent = card
+			table.insert(parts, { f, rnd:NextNumber(), rnd:NextNumber(0.07, 0.2), rnd:NextNumber() })
+		end
+
+		-- logo: parlama + donen halka + ic kare + kuyruklu yildizlar
+		local logo = new("Frame", { Size = UDim2.fromOffset(140, 100), AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 12), BackgroundTransparency = 1 })
+		local glow = new("Frame", { Size = UDim2.fromOffset(100, 100), AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), BackgroundColor3 = accent, BackgroundTransparency = 0.75, BorderSizePixel = 0 }, { corner(50) })
+		glow.Parent = logo
+		onAccent(function(a) glow.BackgroundColor3 = a end)
+		local ring = new("Frame", { Size = UDim2.fromOffset(86, 86), AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), BackgroundTransparency = 1 }, { corner(43) })
+		local rs = new("UIStroke", { Color = WHITE, Thickness = 3.5, ApplyStrokeMode = Enum.ApplyStrokeMode.Border })
+		local rg = new("UIGradient", {})
+		rg.Parent = rs
+		rs.Parent = ring
+		ring.Parent = logo
+		onAccent(function(a, b) rg.Color = ColorSequence.new({ ColorSequenceKeypoint.new(0, a), ColorSequenceKeypoint.new(0.35, WHITE), ColorSequenceKeypoint.new(0.65, b), ColorSequenceKeypoint.new(1, a) }) end)
+		local sq = new("Frame", { Size = UDim2.fromOffset(58, 58), AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), BackgroundColor3 = WHITE, BorderSizePixel = 0 }, { corner(18) })
+		accentGrad(sq, 45)
+		local sqScale = new("UIScale", { Scale = 0 })
+		sqScale.Parent = sq
+		label({ Text = "A", Font = Enum.Font.GothamBlack, TextSize = 32, TextColor3 = WHITE, TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.fromScale(1, 1) }).Parent = sq
+		sq.Parent = logo
+		local comets = {}
+		for c = 1, 3 do
+			local trail = {}
+			for j = 0, 5 do
+				local sz = math.max(2, 8 - j)
+				local d = new("Frame", { Size = UDim2.fromOffset(sz, sz), AnchorPoint = Vector2.new(0.5, 0.5), BackgroundColor3 = c == 1 and accent or (c == 2 and PINK or WHITE), BackgroundTransparency = 0.1 + j * 0.15, BorderSizePixel = 0 }, { corner(4) })
+				d.Parent = logo
+				table.insert(trail, d)
+			end
+			table.insert(comets, { trail, c * 2.1, 0.9 + c * 0.35, 56 + c * 4, c })
+		end
+		onAccent(function(a) for _, d in ipairs(comets[1][1]) do d.BackgroundColor3 = a end end)
+		logo.Parent = card
+
+		local title = label({ Text = string.upper(titleText or "Aurora X"), Font = Enum.Font.GothamBlack, TextSize = 30, TextColor3 = WHITE, TextXAlignment = Enum.TextXAlignment.Center, TextTransparency = 1, Size = UDim2.new(1, 0, 0, 36), Position = UDim2.fromOffset(0, 114) })
+		local tg = new("UIGradient", {})
+		tg.Parent = title
+		onAccent(function(a, b) tg.Color = ColorSequence.new({ ColorSequenceKeypoint.new(0, a), ColorSequenceKeypoint.new(0.5, WHITE), ColorSequenceKeypoint.new(1, b) }) end)
+		title.Parent = card
+		local subL = label({ Text = string.upper(subtitle or "v2.0"), Font = Enum.Font.GothamBold, TextSize = 10, TextColor3 = Color3.fromRGB(205, 200, 235), TextTransparency = 1, TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.new(1, 0, 0, 14), Position = UDim2.fromOffset(0, 151) })
+		subL.Parent = card
+
+		-- ilerleme cubugu + durum + yuzde + adim noktalari
+		local status = label({ Text = "Initializing core...", Font = Enum.Font.GothamMedium, TextSize = 11, TextColor3 = Color3.fromRGB(215, 212, 240), Size = UDim2.new(0, 280, 0, 14), Position = UDim2.fromOffset(60, 174) })
+		status.Parent = card
+		local pct = label({ Text = "0%", Font = Enum.Font.GothamBlack, TextSize = 13, TextColor3 = WHITE, TextXAlignment = Enum.TextXAlignment.Right, Size = UDim2.fromOffset(60, 14), Position = UDim2.fromOffset(360, 174) })
+		pct.Parent = card
+		local track = new("Frame", { Size = UDim2.fromOffset(360, 7), Position = UDim2.fromOffset(60, 194), BackgroundColor3 = Color3.fromRGB(10, 8, 26), BackgroundTransparency = 0.25, BorderSizePixel = 0 }, { corner(4), stroke(WHITE, 1, 0.85) })
+		local fl = new("Frame", { Size = UDim2.fromScale(0, 1), BackgroundColor3 = WHITE, BorderSizePixel = 0, ClipsDescendants = true }, { corner(4) })
+		accentGrad(fl, 0)
+		local sweep = new("Frame", { Size = UDim2.fromOffset(60, 7), BackgroundColor3 = WHITE, BackgroundTransparency = 0.2, BorderSizePixel = 0 })
+		new("UIGradient", { Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.5, 0.2), NumberSequenceKeypoint.new(1, 1) }) }).Parent = sweep
+		sweep.Parent = fl
+		fl.Parent = track
+		local head = new("Frame", { Size = UDim2.fromOffset(16, 16), AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0, 0, 0.5, 0), BackgroundColor3 = WHITE, BackgroundTransparency = 0.6, BorderSizePixel = 0, ZIndex = 3 }, { corner(8) })
+		head.Parent = track
+		track.Parent = card
+		local stepFr = { 0.14, 0.38, 0.58, 0.78, 0.93, 1 }
+		local pips = {}
+		for i, fr in ipairs(stepFr) do
+			local p = new("Frame", { Size = UDim2.fromOffset(8, 8), AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.fromOffset(60 + 360 * fr, 207), BackgroundColor3 = Color3.fromRGB(70, 66, 100), BorderSizePixel = 0 }, { corner(4) })
+			p.Parent = card
+			pips[i] = p
+		end
+
+		-- "Biliyor musun?" kutusu
+		local tipBox = new("Frame", { Size = UDim2.fromOffset(400, 58), Position = UDim2.fromOffset(40, 228), BackgroundColor3 = Color3.fromRGB(8, 6, 22), BackgroundTransparency = 0.35, BorderSizePixel = 0 }, { corner(14) })
+		local tipStroke = stroke(accent, 1, 0.45)
+		tipStroke.Parent = tipBox
+		onAccent(function(a) tipStroke.Color = a end)
+		local tipHead = label({ Text = "DID YOU KNOW?", Font = Enum.Font.GothamBlack, TextSize = 10, TextColor3 = accent, TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.new(1, 0, 0, 14), Position = UDim2.fromOffset(0, 8) })
+		tipHead.Parent = tipBox
+		onAccent(function(a) tipHead.TextColor3 = a end)
+		local tipL = label({ Text = "", TextSize = 12, TextColor3 = WHITE, TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Center, TextYAlignment = Enum.TextYAlignment.Top, Size = UDim2.new(1, -28, 0, 30), Position = UDim2.fromOffset(14, 25) })
+		tipL.Parent = tipBox
+		tipBox.Parent = card
+
+		-- animasyonlu kenarlik (donen renkli cerceve)
+		local edge = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, BorderSizePixel = 0 }, { corner(22) })
+		local es = new("UIStroke", { Color = WHITE, Thickness = 2, ApplyStrokeMode = Enum.ApplyStrokeMode.Border })
+		local eg = new("UIGradient", {})
+		eg.Parent = es
+		es.Parent = edge
+		edge.Parent = card
+		onAccent(function(a, b) eg.Color = ColorSequence.new({ ColorSequenceKeypoint.new(0, a), ColorSequenceKeypoint.new(0.25, TEAL), ColorSequenceKeypoint.new(0.5, b), ColorSequenceKeypoint.new(0.75, PINK), ColorSequenceKeypoint.new(1, a) }) end)
+		card.Parent = gui
+
+		tween(cScale, 0.6, { Scale = fit }, Enum.EasingStyle.Back)
+		tween(card, 0.4, { GroupTransparency = 0 })
+		tween(sqScale, 0.8, { Scale = 1 }, Enum.EasingStyle.Back)
+		tween(title, 0.8, { TextTransparency = 0 })
+		task.delay(0.25, function() tween(subL, 0.7, { TextTransparency = 0.05 }) end)
+
+		-- animasyon dongusu
+		local t0 = os.clock()
+		local conn
+		conn = RunService.Heartbeat:Connect(function()
+			if not card.Parent then conn:Disconnect() return end
+			local t = os.clock() - t0
+			rg.Rotation = (t * 160) % 360
+			eg.Rotation = (t * 70) % 360
+			local pulse = math.sin(t * 2.4)
+			glow.BackgroundTransparency = 0.76 + 0.08 * pulse
+			glow.Size = UDim2.fromOffset(104 + 10 * pulse, 104 + 10 * pulse)
+			tg.Offset = Vector2.new(((t * 0.5) % 2.6) - 1.3, 0)
+			for _, r in ipairs(rays) do r[1].Rotation = r[2] + t * 9 end
+			for _, b in ipairs(blobs) do
+				b[1].Position = UDim2.new(b[2] + math.sin(t * b[4] + b[5]) * 0.06, 0, b[3] + math.cos(t * b[4] * 0.8 + b[5]) * 0.05, 0)
+				b[1].BackgroundTransparency = b[6] + 0.05 * math.sin(t * 1.5 + b[5])
+			end
+			for _, s in ipairs(stars) do s[1].BackgroundTransparency = math.clamp(0.5 - 0.45 * math.sin(t * s[3] + s[2]), 0.05, 0.95) end
+			for _, set in ipairs(rbs) do
+				for k, fg in ipairs(set.frames) do
+					local w = t * set.sp + set.ph + k * 0.35
+					fg[1].Position = UDim2.new(0.5, math.sin(w * 0.8) * 30, set.y + math.sin(w) * 0.06, 0)
+					fg[1].Rotation = set.rot + math.sin(w * 0.7) * 6
+					fg[2].Offset = Vector2.new(math.sin(w * 0.6) * 0.25, 0)
+				end
+			end
+			for _, p in ipairs(parts) do
+				local k = (t * p[3] + p[4]) % 1
+				p[1].Position = UDim2.new(p[2], math.sin(t + p[4] * 6) * 8, 1 - k, 0)
+				p[1].BackgroundTransparency = 1 - math.sin(k * math.pi) * 0.7
+			end
+			for _, c in ipairs(comets) do
+				for j, d in ipairs(c[1]) do
+					local a = t * c[3] + c[2] - (j - 1) * 0.13
+					d.Position = UDim2.new(0.5, math.cos(a) * c[4] * 1.15, 0.5, math.sin(a) * c[4] * 0.62)
+				end
+			end
+			local frac = fl.Size.X.Scale
+			pct.Text = string.format("%d%%", math.floor(frac * 100 + 0.5))
+			head.Position = UDim2.new(frac, 0, 0.5, 0)
+			head.BackgroundTransparency = 0.55 + 0.15 * pulse
+			sweep.Position = UDim2.fromOffset(((t * 140) % 520) - 80, 0)
+			for i, fr in ipairs(stepFr) do
+				if frac >= fr - 0.01 and pips[i].BackgroundColor3 ~= WHITE then
+					pips[i].BackgroundColor3 = WHITE
+					pips[i].Size = UDim2.fromOffset(12, 12)
+					tween(pips[i], 0.3, { Size = UDim2.fromOffset(8, 8) }, Enum.EasingStyle.Back)
+				end
+			end
+		end)
+
+		-- gokten kayan yildizlar
+		task.spawn(function()
+			while card.Parent do
+				task.wait(rnd:NextNumber(0.9, 1.8))
+				if not card.Parent then return end
+				local sx, sy = rnd:NextNumber(0.2, 0.6), rnd:NextNumber(0.02, 0.2)
+				local s = new("Frame", { Size = UDim2.fromOffset(90, 2), AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.fromScale(sx, sy), Rotation = 28, BackgroundColor3 = WHITE, BorderSizePixel = 0 }, { corner(1) })
+				new("UIGradient", { Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(1, 0) }) }).Parent = s
+				s.Parent = card
+				tween(s, 0.7, { Position = UDim2.fromScale(sx + 0.3, sy + 0.55), BackgroundTransparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+				task.delay(0.75, function() s:Destroy() end)
+			end
+		end)
+
+		-- ipuclari (rastgele sirayla)
+		local tips = {
+			"Tap any section header to collapse or expand it.",
+			"You can change the accent color and theme backgrounds in Settings.",
+			"Save your settings as a config and load them again next time.",
+			"Use Panic in Settings to hide everything instantly.",
+			"The Home tab shows live FPS, latency and player count.",
+			"Join our Discord from the Home tab for updates and support.",
+			"Drag the menu by its title bar to place it anywhere you like.",
+			"Aurora X loads a special profile when it detects a supported game.",
+		}
+		if PREMIUM and not PREMIUM.Owned then table.insert(tips, "Features marked PREMIUM are part of Aurora X Premium.") end
+		for i = #tips, 2, -1 do
+			local j = rnd:NextInteger(1, i)
+			tips[i], tips[j] = tips[j], tips[i]
+		end
+		task.spawn(function()
+			local i = 0
+			while card.Parent do
+				i = i + 1
+				tipL.Text = tips[(i - 1) % #tips + 1]
+				tipL.TextTransparency = 1
+				tween(tipL, 0.25, { TextTransparency = 0 })
+				task.wait(1.7)
+				if not card.Parent then return end
+				tween(tipL, 0.2, { TextTransparency = 1 })
+				task.wait(0.22)
+			end
+		end)
+
+		-- yukleme adimlari
+		task.spawn(function()
+			task.wait(0.6)
+			local steps = {
+				{ "Initializing core...", 0.14, 0.6 },
+				{ "Loading modules...", 0.38, 0.9 },
+				{ "Syncing configuration...", 0.58, 0.8 },
+				{ "Applying theme...", 0.78, 0.75 },
+				{ "Hooking interface...", 0.93, 0.7 },
+				{ "Ready!", 1, 0.45 },
+			}
+			for _, s in ipairs(steps) do
+				status.Text = s[1]
+				tween(fl, s[3] * 0.85, { Size = UDim2.fromScale(s[2], 1) }, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut)
+				task.wait(s[3])
+			end
+			status.Text = "Ready!"
+			status.TextColor3 = T.ok
+			-- hazir patlamasi: genisleyen halkalar
+			for n = 1, 3 do
+				local rr = new("Frame", { Size = UDim2.fromOffset(86, 86), AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0, 62), BackgroundTransparency = 1 }, { corner(300), stroke(n == 2 and PINK or accent, 3, 0.1) })
+				rr.Parent = card
+				local ss = rr:FindFirstChildOfClass("UIStroke")
+				tween(rr, 0.7, { Size = UDim2.fromOffset(420, 420) }, Enum.EasingStyle.Quad)
+				tween(ss, 0.7, { Transparency = 1 })
+				task.delay(0.75, function() rr:Destroy() end)
+				task.wait(0.12)
+			end
+			tween(glow, 0.3, { BackgroundTransparency = 0.45 })
+			task.wait(0.45)
+			tween(cScale, 0.4, { Scale = fit * 1.1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+			tween(card, 0.4, { GroupTransparency = 1 })
+			tween(backdrop, 0.4, { BackgroundTransparency = 1 })
+			task.wait(0.42)
+			card:Destroy()
+			backdrop:Destroy()
 			setOpen(true)
 			if Window.AfterOpen then task.spawn(Window.AfterOpen) end
 		end)
@@ -5745,9 +6375,10 @@ a2:AddToggle("No Collide", false, function(on) Hit.NoCollide = on end)
 -- 7. SETTINGS SEKME
 local Settings = Window:AddTab("Settings", "o")
 local s1 = Settings:AddSection("Appearance & Scale")
-s1:AddDropdown("Theme", { "Violet", "Ocean", "Mint", "Rose", "Amber", "Crimson", "Red", "Orange", "Gold", "Lime", "Emerald", "Teal", "Cyan", "Sky", "Blue", "Indigo", "Purple", "Magenta", "Pink", "Silver", "White" }, "Violet", function(o) Aurora:SetAccent(o, true) end)
-s1:AddColorPicker("Custom accent", ACCENTS.Violet, function(c) Aurora:SetAccent(c, true) end)
+s1:AddDropdown("Theme", { "Violet", "Ocean", "Mint", "Rose", "Amber", "Crimson", "Red", "Orange", "Gold", "Lime", "Emerald", "Teal", "Cyan", "Sky", "Blue", "Indigo", "Purple", "Magenta", "Pink", "Silver", "White" }, "Violet", function(o) Aurora:StopAnimTheme(false) Aurora:SetAccent(o, true) end)
+s1:AddColorPicker("Custom accent", ACCENTS.Violet, function(c) Aurora:StopAnimTheme(false) Aurora:SetAccent(c, true) end)
 s1:AddToggle("Rainbow Accent", false, function(on)
+	if on then Aurora:StopAnimTheme(false) end
 	isRainbowAccent = on
 	if not on then
 		Aurora:SetAccent(savedAccent, false)
@@ -5868,6 +6499,7 @@ do
 	local function applyBG(name)
 		local t = BGS[name]
 		if not t then return end
+		Aurora:StopAnimTheme(false)
 		for k, v in pairs(t) do Aurora:UpdateThemeColor(k, v) end
 	end
 	local PACKS = {
@@ -5878,10 +6510,26 @@ do
 	sPack:AddDropdown("Theme Pack (color + background)", { "Blood", "Ocean", "Sakura", "Matrix", "GoldBlack", "NeonPurple", "Forest", "Sunset", "Ice", "Royal", "Coffee", "Snow" }, "Sec", function(o)
 		local p = PACKS[o]
 		if not p then return end
+		Aurora:StopAnimTheme(false)
 		Aurora:SetAccent(p[1], true)
 		applyBG(p[2])
 	end)
 	sPack:AddDropdown("Background Preset", BGORDER, "Sec", function(o) applyBG(o) end)
+end
+
+do
+local sAnim = Settings:AddSection("Animated Themes")
+sAnim:AddDropdown("Animated Theme", { "Off", "Aurora Borealis", "Neon City", "Sunset Blaze", "Ocean Wave", "Cosmic Galaxy", "Lava Flow", "Cherry Blossom", "Toxic Rave", "Ice Crystal", "Vaporwave", "Golden Hour", "Rainbow Flow" }, "Off", function(o)
+	if o == "Off" then
+		Aurora:StopAnimTheme(true)
+	else
+		Aurora:StartAnimTheme(o)
+		Aurora:Notify("Animated Theme", o .. " is now flowing.", 2.5, "success")
+	end
+end)
+sAnim:AddSlider("Animation Speed", 0.2, 4, 1, function(v) Aurora.Anim.speed = v end, 0.1)
+sAnim:AddToggle("Animate Background Colors", true, function(on) Aurora.Anim.bg = on end)
+sAnim:AddLabel("Animated themes make the accent and the menu colors flow through a color palette with moving light bands. Picking a normal theme, color or background stops the animation.")
 end
 
 local sThemeBg = Settings:AddSection("Theme Backgrounds", true)
@@ -5988,7 +6636,7 @@ do
 	local function applyTheme(th)
 		if type(th) ~= "table" then return end
 		local a = colDeser(th.accent)
-		if a then Aurora:SetAccent(a, true) end
+		if a then Aurora:StopAnimTheme(false) Aurora:SetAccent(a, true) end
 		if type(th.keys) == "table" then
 			for _, k in ipairs(THEME_KEYS) do
 				local c = colDeser(th.keys[k])
