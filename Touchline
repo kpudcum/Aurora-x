@@ -3523,6 +3523,60 @@ hCredits:AddCredit("3qr311", "Scripter")
 		setRing("save", S.reachVisual and S.autoSave, S.autoSaveRange, COL.warn, 3)
 	end
 
+
+	local mobileKick = nil
+	-- Mobile action buttons (touch): draggable on-screen bar
+	local barGui = Instance.new("ScreenGui")
+	barGui.Name = "CaddeX_Buttons" barGui.ResetOnSpawn = false barGui.DisplayOrder = 9997
+	barGui.Enabled = AIM_MOBILE
+	barGui.Parent = LP:WaitForChild("PlayerGui")
+	do
+		local list = {
+			{ "KICK", function() if mobileKick then mobileKick(true) end end },
+			{ "GOAL", kickToGoal },
+			{ "PASS", passToTeammate },
+			{ "TACKLE", function() kickBall("Tackle", 0) end },
+			{ "SAVE", function() kickBall("Save", 0.15) end },
+			{ "DIVE", function() kickBall("Dive", 0) end },
+			{ "SKILL", function() fireTouchChild("Skill", nil) end },
+		}
+		local frame = Instance.new("Frame")
+		frame.BackgroundTransparency = 1 frame.BorderSizePixel = 0
+		frame.Size = UDim2.fromOffset(64, 22 + #list * 40)
+		frame.Position = UDim2.new(1, -72, 0.25, 0)
+		frame.Parent = barGui
+		local grip = Instance.new("TextButton")
+		grip.Text = "::" grip.Font = Enum.Font.GothamBold grip.TextSize = 14 grip.TextColor3 = Color3.new(1, 1, 1)
+		grip.BackgroundColor3 = Color3.fromRGB(30, 30, 40) grip.BackgroundTransparency = 0.25 grip.BorderSizePixel = 0
+		grip.AutoButtonColor = false grip.Size = UDim2.fromOffset(64, 18) grip.Parent = frame
+		Instance.new("UICorner", grip).CornerRadius = UDim.new(0, 6)
+		for i, it in ipairs(list) do
+			local b = Instance.new("TextButton")
+			b.Text = it[1] b.Font = Enum.Font.GothamBold b.TextSize = 12 b.TextColor3 = Color3.new(1, 1, 1)
+			b.BackgroundColor3 = COL.accent b.BackgroundTransparency = 0.25 b.BorderSizePixel = 0
+			b.AutoButtonColor = true b.Size = UDim2.fromOffset(64, 36) b.Position = UDim2.fromOffset(0, 22 + (i - 1) * 40)
+			b.Parent = frame
+			Instance.new("UICorner", b).CornerRadius = UDim.new(0, 8)
+			b.Activated:Connect(function() task.spawn(it[2]) end)
+		end
+		local drag, startIn, startPos = nil, nil, nil
+		grip.InputBegan:Connect(function(i)
+			if i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseButton1 then
+				drag, startIn, startPos = i, i.Position, frame.Position
+			end
+		end)
+		track(UserInputService.InputChanged:Connect(function(i)
+			if drag and (i == drag or i.UserInputType == Enum.UserInputType.MouseMovement) and drag.UserInputState ~= Enum.UserInputState.End then
+				local d = i.Position - startIn
+				local vp = Workspace.CurrentCamera and Workspace.CurrentCamera.ViewportSize or Vector2.new(1280, 720)
+				frame.Position = UDim2.fromOffset(
+					clamp(startPos.X.Offset + startPos.X.Scale * vp.X + d.X, 0, vp.X - 64),
+					clamp(startPos.Y.Offset + startPos.Y.Scale * vp.Y + d.Y, 0, vp.Y - frame.AbsoluteSize.Y))
+			end
+		end))
+		track(UserInputService.InputEnded:Connect(function(i) if i == drag then drag = nil end end))
+	end
+
 	-- ============================================================
 	-- AURORA X TABS (CADDE FEATURES — MATCHING AURAX_MAIN LAYOUT)
 	-- ============================================================
@@ -3536,7 +3590,7 @@ hCredits:AddCredit("3qr311", "Scripter")
 		autoTackle = nil,
 		autoSave = { kind = "key", value = Enum.KeyCode.U },
 		autoChase = nil,
-		resetChar = { kind = "key", value = Enum.KeyCode.R },
+		resetChar = nil,
 		ballEsp = { kind = "key", value = Enum.KeyCode.V },
 		playerEsp = { kind = "key", value = Enum.KeyCode.B },
 	}
@@ -3594,6 +3648,7 @@ hCredits:AddCredit("3qr311", "Scripter")
 	kQuick:AddButton("Goalkeeper Save", function() kickBall("Save", 0.15) end)
 	kQuick:AddButton("Dive", function() kickBall("Dive", 0) end)
 	kQuick:AddButton("Trigger Skill", function() fireTouchChild("Skill", "Skill triggered") end)
+	kQuick:AddToggle("On-Screen Buttons (Mobile)", AIM_MOBILE, function(on) barGui.Enabled = on end)
 
 	-- 3. AUTO TAB (hitbox icon)
 	local AutoTab = Window:AddTab("Auto", "o")
@@ -3759,18 +3814,25 @@ hCredits:AddCredit("3qr311", "Scripter")
 		end
 	end)
 
-	track(UserInputService.InputEnded:Connect(function(inp, gp)
-		if gp or inp.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
-		if not (S.reachOn or S.lmbAutoAim or S.powerLock) or not canAct() then return end
+	local function lmbKick(force)
+		if not force and not (S.reachOn or S.lmbAutoAim or S.powerLock) then return end
+		if not canAct() then return end
 		local ball, hrp = getBall(), getHRP()
 		if not ball or not hrp or ball.Anchored then return end
 		local dist = (ball.Position - hrp.Position).Magnitude
 		local maxR = S.reachOn and (S.reach * 0.5) or 5.5
 		if dist <= maxR then
 			local pwr = getEffectivePower("Shoot", ball)
-			kickBall((S.powerLock and pwr <= 0.3) and "Dribble" or "Shoot", pwr, { ball = ball, autoAim = S.lmbAutoAim })
+			kickBall((S.powerLock and pwr <= 0.3) and "Dribble" or "Shoot", pwr, { ball = ball, autoAim = S.lmbAutoAim or force == true })
 		end
-	end))
+	end
+	if not AIM_MOBILE then
+		track(UserInputService.InputEnded:Connect(function(inp, gp)
+			if gp or inp.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+			lmbKick()
+		end))
+	end
+	mobileKick = lmbKick
 
 	local visAcc = 0
 	track(RunService.Heartbeat:Connect(function(dt)
@@ -3905,6 +3967,9 @@ hCredits:AddCredit("3qr311", "Scripter")
 			for _, rp in pairs(rangeRings) do pcall(function() rp:Destroy() end) end
 			rangeRings = {}
 			if crosshairGui then pcall(function() crosshairGui:Destroy() end) end
+			if barGui then pcall(function() barGui:Destroy() end) end
+			pcall(function() if S.nativeHitbox then setLocalOption("Hitboxes", false) end end)
+			pcall(function() local h = getHum() if h and S.jumpOn then h.UseJumpPower = S.defaultUseJumpPower h.JumpHeight = S.defaultJump end end)
 		end)
 	end
 end)()
@@ -3948,13 +4013,15 @@ do
 			enforcedClockTime, enforcedAmbient = nil, nil
 			Aim.Enabled = false
 			Hit.Enabled = false
-			Aurora.FlyFlag.On = false
+			if Aurora.FlyFlag then Aurora.FlyFlag.On = false end
+		end)
+		pcall(function()
 			if FovLock.Value then
 				FovLock.On = false
 				workspace.CurrentCamera.FieldOfView = Aurora.Orig.FOV
 			end
-			workspace.Gravity = Aurora.Orig.Gravity
 		end)
+		pcall(function() workspace.Gravity = Aurora.Orig.Gravity end)
 		-- gui yok edilince tum Destroying dinleyicileri calisir: fly/noclip/radar/crosshair/yagmur/gokyuzu/ESP/hitbox temizlenir
 		pcall(function() gui:Destroy() end)
 		pcall(function()
