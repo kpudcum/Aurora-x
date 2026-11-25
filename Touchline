@@ -2699,6 +2699,7 @@ hCredits:AddCredit("3qr311", "Scripter")
 		fpsBoost = false,
 		crosshair = false,
 		fov = 85,
+		fovOn = false,
 		lastKick = 0,
 	}
 
@@ -3091,7 +3092,7 @@ hCredits:AddCredit("3qr311", "Scripter")
 										t2[6] = aimedCF:VectorToObjectSpace(dir)
 									end
 								end
-								return oldNC(self, t2)
+								return oldNC(self, t2, select(2, ...))
 							end
 						end
 					end
@@ -3736,6 +3737,7 @@ hCredits:AddCredit("3qr311", "Scripter")
 	vWorld:AddToggle("Crosshair", S.crosshair, function(on) S.crosshair = on crosshairGui.Enabled = on end)
 	vWorld:AddSlider("Camera FOV", 70, 120, S.fov, function(v)
 		S.fov = v
+		S.fovOn = true
 		local cam = Workspace.CurrentCamera
 		if cam and cam.CameraType == Enum.CameraType.Custom then cam.FieldOfView = v end
 	end, 1)
@@ -3871,7 +3873,7 @@ hCredits:AddCredit("3qr311", "Scripter")
 		end
 
 		local cam = Workspace.CurrentCamera
-		if cam and cam.CameraType == Enum.CameraType.Custom and math.abs(cam.FieldOfView - S.fov) > 0.6 then
+		if S.fovOn and cam and cam.CameraType == Enum.CameraType.Custom and math.abs(cam.FieldOfView - S.fov) > 0.6 then
 			cam.FieldOfView = S.fov
 		end
 
@@ -3956,7 +3958,7 @@ hCredits:AddCredit("3qr311", "Scripter")
 			for _, c in ipairs(caddeConns) do pcall(function() c:Disconnect() end) end
 			caddeConns = {}
 			pcall(applyFullbright, false)
-			pcall(applyFpsBoost, false)
+			if S.fpsBoost then pcall(applyFpsBoost, false) end
 			pcall(applyClearNets, false)
 			pcall(applyInstantChargeOption, false)
 			pcall(clearBallEsp)
@@ -4108,13 +4110,13 @@ do
 		GoldBlack = { "Gold", "Black" }, NeonPurple = { "Magenta", "Purple" }, Forest = { "Emerald", "Forest" }, Sunset = { "Orange", "Sunset" },
 		Ice = { "Sky", "Slate" }, Royal = { "Indigo", "Midnight" }, Coffee = { "Amber", "Coffee" }, Snow = { "Blue", "Light" },
 	}
-	sPack:AddDropdown("Theme Pack (color + background)", { "Blood", "Ocean", "Sakura", "Matrix", "GoldBlack", "NeonPurple", "Forest", "Sunset", "Ice", "Royal", "Coffee", "Snow" }, "Sec", function(o)
+	sPack:AddDropdown("Theme Pack (color + background)", { "Blood", "Ocean", "Sakura", "Matrix", "GoldBlack", "NeonPurple", "Forest", "Sunset", "Ice", "Royal", "Coffee", "Snow" }, "Select", function(o)
 		local p = PACKS[o]
 		if not p then return end
 		Aurora:SetAccent(p[1], true)
 		applyBG(p[2])
 	end)
-	sPack:AddDropdown("Background Preset", BGORDER, "Sec", function(o) applyBG(o) end)
+	sPack:AddDropdown("Background Preset", BGORDER, "Select", function(o) applyBG(o) end)
 end
 
 local sThemeBg = Settings:AddSection("Theme Backgrounds", false)
