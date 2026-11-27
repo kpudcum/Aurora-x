@@ -3122,15 +3122,13 @@ hCredits:AddCredit("3qr311", "Scripter")
 			local part = limbs[i]
 			if part and part.Parent then
 				local hp = part.Position
-				local dx, dz = bp.X - hp.X, bp.Z - hp.Z
-				local dNow = math.sqrt(dx * dx + dz * dz)
+				local dNow = (bp - hp).Magnitude
 				if dNow < best then best = dNow end
 			end
 		end
 		if best == math.huge then
 			local hp = hrp.Position
-			local dx, dz = bp.X - hp.X, bp.Z - hp.Z
-			best = math.sqrt(dx * dx + dz * dz)
+			best = (bp - hp).Magnitude
 		end
 		return best
 	end
@@ -3153,8 +3151,8 @@ hCredits:AddCredit("3qr311", "Scripter")
 	end
 
 	local function inRange(hrp, ball, rangeStuds)
-		local radius = clamp(rangeStuds, 1, 30) * 0.5
-		return getClosestLimbDist(hrp, ball) <= (radius + 1.0)
+		-- slider value = real radius in studs (sphere radius is the same number)
+		return getClosestLimbDist(hrp, ball) <= clamp(rangeStuds, 1, 35) + 0.5
 	end
 
 	-- Kick position for far balls: the character stays where it is, only the position sent with the kick is
@@ -3269,7 +3267,7 @@ hCredits:AddCredit("3qr311", "Scripter")
 						local cf, sz, params = ...
 						if typeof(sz) == "Vector3" and sz.X <= 8 and sz.Y <= 8 and sz.Z <= 8 then
 							boundsHookSeen = true
-							local d = clamp(S.reach, 1, 35) + 3.0
+							local d = clamp(S.reach, 1, 35) * 2 + 1
 							return oldNC(self, cf, Vector3.new(d, math.max(d, 30), d), params)
 						end
 					elseif (S.reachOn or S.powerLock or S.lmbAutoAim or S.ground or S.curveR or S.curveL) then
@@ -3695,18 +3693,18 @@ hCredits:AddCredit("3qr311", "Scripter")
 				p.Parent = Workspace
 				rangeRings[key] = p
 			end
-			local d = clamp(diam, 1, 40)
+			local d = clamp(diam, 1, 71)
 			local c = S.rainbowRings and Color3.fromHSV((tNow * 0.25 + idx * 0.14) % 1, 0.85, 1) or col
 			p.Size = Vector3.new(d, d, d)
 			p.CFrame = CFrame.new(basePos)
 			p.Color = c
 			p.Transparency = 0.55
 		end
-		setSphere("shoot", S.reachVisual and S.autoShoot, S.autoShootRange + 2, S.ringColors.shoot, 0)
-		setSphere("dribble", S.reachVisual and S.autoDribble, S.autoDribbleRange + 2, S.ringColors.dribble, 1)
-		setSphere("tackle", S.reachVisual and S.autoTackle, S.autoTackleRange + 2, S.ringColors.tackle, 2)
-		setSphere("save", S.reachVisual and S.autoSave, S.autoSaveRange + 2, S.ringColors.save, 3)
-		if rangeRings.reach then rangeRings.reach.Transparency = 1 end
+		setSphere("shoot", S.reachVisual and S.autoShoot, S.autoShootRange * 2 + 1, S.ringColors.shoot, 0)
+		setSphere("dribble", S.reachVisual and S.autoDribble, S.autoDribbleRange * 2 + 1, S.ringColors.dribble, 1)
+		setSphere("tackle", S.reachVisual and S.autoTackle, S.autoTackleRange * 2 + 1, S.ringColors.tackle, 2)
+		setSphere("save", S.reachVisual and S.autoSave, S.autoSaveRange * 2 + 1, S.ringColors.save, 3)
+		setSphere("reach", S.reachVisual and S.reachOn, S.reach * 2 + 1, S.ringColors.reach, 4)
 	end
 
 	-- ============================================================
@@ -3873,6 +3871,13 @@ hCredits:AddCredit("3qr311", "Scripter")
 	-- 3. REACH TAB (hitbox icon — Auto Reach + Ring Visuals & Colors)
 	local ReachTab = Window:AddTab("Reach", "o")
 
+	local rManual = ReachTab:AddSection("Manual Reach")
+	toggleRefs.reachOn = rManual:AddToggle("Extended Reach (Manual Kick)", S.reachOn, function(on)
+		S.reachOn = on
+		if on then hookGameModules() end
+	end)
+	rManual:AddSlider("Reach Radius (studs)", 3, 35, S.reach, function(v) S.reach = v end, 1)
+
 	local rAuto = ReachTab:AddSection("Auto Reach")
 	toggleRefs.autoShoot = rAuto:AddToggle("Auto Shoot", S.autoShoot, function(on) S.autoShoot = on paintMobBtn("autoShoot") end)
 	toggleRefs.autoDribble = rAuto:AddToggle("Auto Dribble", S.autoDribble, function(on) S.autoDribble = on paintMobBtn("autoDribble") end)
@@ -3904,6 +3909,7 @@ hCredits:AddCredit("3qr311", "Scripter")
 			S.ringColors[key] = c
 		end)
 	end
+	addRingColor("Manual Reach Sphere Color", "reach")
 	addRingColor("Auto Shoot Sphere Color", "shoot")
 	addRingColor("Auto Dribble Sphere Color", "dribble")
 	addRingColor("Auto Tackle Sphere Color", "tackle")
@@ -4019,7 +4025,8 @@ hCredits:AddCredit("3qr311", "Scripter")
 	track(RunService.RenderStepped:Connect(function()
 		if not alive or not canAct() then return end
 		local now = os.clock()
-		if S.autoShoot or S.autoDribble or S.autoTackle or S.autoSave then
+		if (S.autoShoot or S.autoDribble or S.autoTackle or S.autoSave) and (now - (S._lastAuto or 0)) >= 0.05 then
+			S._lastAuto = now
 			local ball, hrp = getBall(), getHRP()
 			if ball and hrp and not ball.Anchored then
 				if S.autoShoot and inRange(hrp, ball, S.autoShootRange) and ball.AssemblyLinearVelocity.Magnitude < 95 then
