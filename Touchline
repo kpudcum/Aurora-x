@@ -3854,8 +3854,6 @@ hCredits:AddCredit("3qr311", "Scripter")
 	kAutoSet:AddButton("Goalkeeper Save", function() kickBall("Save", 0.15) end)
 	kAutoSet:AddButton("Dive", function() kickBall("Dive", 0) end)
 	kAutoSet:AddButton("Trigger Skill", function() fireTouchChild("Skill", "Skill triggered") end)
-	kAutoSet:AddSlider("Auto Shoot Delay (s)", 0, 2.0, S.autoShootDelay, function(v) S.autoShootDelay = v end, 0.05)
-	kAutoSet:AddSlider("Dribble Delay (s)", 0, 1.5, S.autoDribbleDelay, function(v) S.autoDribbleDelay = v end, 0.05)
 
 	-- 3. REACH TAB (hitbox icon — Auto Reach + Ring Visuals & Colors)
 	local ReachTab = Window:AddTab("Reach", "o")
@@ -4002,37 +4000,20 @@ hCredits:AddCredit("3qr311", "Scripter")
 	pcall(function() RunService:UnbindFromRenderStep("CaddeX_PowerBar") end)
 	pcall(function() RunService:BindToRenderStep("CaddeX_PowerBar", Enum.RenderPriority.Last.Value, applyChargeBarPower) end)
 
-	local lastShot, lastDrib, lastSave, lastTackle, lastSkillCheck = 0, 0, 0, 0, 0
-	local lastTryShot, lastTryDrib, lastTryTackle, lastTrySave = 0, 0, 0, 0
+	local lastSkillCheck = 0
 	track(RunService.RenderStepped:Connect(function()
 		if not alive or not canAct() then return end
 		local now = os.clock()
 		if S.autoShoot or S.autoDribble or S.autoTackle or S.autoSave then
 			local ball, hrp = getBall(), getHRP()
 			if ball and hrp and not ball.Anchored then
-				if S.autoShoot and inRange(hrp, ball, S.autoShootRange) and ball.AssemblyLinearVelocity.Magnitude < 95 and (now - lastShot) >= S.autoShootDelay then
-					kickBall("Shoot", getEffectivePower("Shoot", ball), {
-						ball = ball,
-						ignoreCooldown = true,
-						onResult = function(ok) if ok then lastShot = os.clock() end end,
-					})
-				elseif S.autoDribble and inRange(hrp, ball, S.autoDribbleRange) and (now - lastDrib) >= S.autoDribbleDelay then
+				if S.autoShoot and inRange(hrp, ball, S.autoShootRange) and ball.AssemblyLinearVelocity.Magnitude < 95 then
+					kickBall("Shoot", getEffectivePower("Shoot", ball), { ball = ball, ignoreCooldown = true })
+				elseif S.autoDribble and inRange(hrp, ball, S.autoDribbleRange) then
 					local hum = getHum()
-					kickBall("Dribble", 0.12, {
-						ball = ball,
-						dir = flatUnit(hum and hum.MoveDirection, hrp.CFrame.LookVector),
-						autoAim = false,
-						ignoreCooldown = true,
-						onResult = function(ok) if ok then lastDrib = os.clock() end end,
-					})
+					kickBall("Dribble", 0.12, { ball = ball, dir = flatUnit(hum and hum.MoveDirection, hrp.CFrame.LookVector), autoAim = false, ignoreCooldown = true })
 				elseif S.autoTackle and inRange(hrp, ball, S.autoTackleRange) and isOpponentHoldingBall(ball) then
-					kickBall("Tackle", 0, {
-						ball = ball,
-						dir = flatUnit(ball.Position - hrp.Position, hrp.CFrame.LookVector),
-						autoAim = false,
-						ignoreCooldown = true,
-						onResult = function(ok) if ok then lastTackle = os.clock() end end,
-					})
+					kickBall("Tackle", 0, { ball = ball, dir = flatUnit(ball.Position - hrp.Position, hrp.CFrame.LookVector), autoAim = false, ignoreCooldown = true })
 				end
 				if S.autoSave then
 					local ownSide = getAttackSide() == "Home" and "Away" or "Home"
@@ -4042,13 +4023,7 @@ hCredits:AddCredit("3qr311", "Scripter")
 						local toward = netCF.Position - ball.Position
 						local spd = ball.AssemblyLinearVelocity.Magnitude
 						if inRange(hrp, ball, S.autoSaveRange) and netDist <= S.autoSaveRange and spd > 2 and toward.Magnitude > 0.1 and ball.AssemblyLinearVelocity.Unit:Dot(toward.Unit) > 0.3 then
-							kickBall("Save", 0.15, {
-								ball = ball,
-								dir = -toward,
-								autoAim = false,
-								ignoreCooldown = true,
-								onResult = function(ok) if ok then lastSave = os.clock() end end,
-							})
+							kickBall("Save", 0.15, { ball = ball, dir = -toward, autoAim = false, ignoreCooldown = true })
 						end
 					end
 				end
