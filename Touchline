@@ -3157,6 +3157,19 @@ hCredits:AddCredit("3qr311", "Scripter")
 		return getClosestLimbDist(hrp, ball) <= (radius + 1.0)
 	end
 
+	-- Kick position for far balls: the character stays where it is, only the position sent with the kick is
+	-- placed right next to the ball (ping-led), so the server sees a normal close-range touch.
+	local function farKickCF(hrp, ball, dir, baseCF)
+		local d3 = (ball.Position - hrp.Position).Magnitude
+		if d3 <= 6 then return baseCF end
+		local ping = 0.05
+		pcall(function() ping = LP:GetNetworkPing() end)
+		local lead = ball.Position + ball.AssemblyLinearVelocity * clamp(ping, 0.02, 0.25)
+		local y = clamp(lead.Y, hrp.Position.Y - 3, hrp.Position.Y + 6)
+		local stand = Vector3.new(lead.X - dir.X * 1.5, y, lead.Z - dir.Z * 1.5)
+		return CFrame.lookAt(stand, stand + dir)
+	end
+
 	local reachToken = 0
 	local lastDetectAt = 0
 	local function runReachWindow(duration, action, fixedPower)
@@ -3198,6 +3211,7 @@ hCredits:AddCredit("3qr311", "Scripter")
 				end
 			end
 			local useCF = (S.lmbAutoAim and act == "Shoot") and CFrame.lookAt(hrp.Position, hrp.Position + dir) or hrp.CFrame
+			useCF = farKickCF(hrp, ball, dir, useCF)
 			local moveVec = (S.lmbAutoAim and act == "Shoot") and dir or (hum and hum.MoveDirection or Vector3.zero)
 			local pwr = S.powerLock and getEffectivePower(act, ball) or livePwr
 			local payload = buildPayload(ball, act, pwr, useCF, dir, moveVec)
@@ -3376,6 +3390,7 @@ hCredits:AddCredit("3qr311", "Scripter")
 		local dir = flatUnit(rawDir, hrp.CFrame.LookVector)
 		if aimLocked then hrp.CFrame = CFrame.lookAt(hrp.Position, hrp.Position + dir) end
 		local useCF = aimLocked and CFrame.lookAt(hrp.Position, hrp.Position + dir) or hrp.CFrame
+		useCF = farKickCF(hrp, ball, dir, useCF)
 		touchBallWithLimbs(hrp, ball)
 		return firePayload(buildPayload(ball, action, power, useCF, dir), opts.onResult)
 	end
@@ -3680,17 +3695,17 @@ hCredits:AddCredit("3qr311", "Scripter")
 				p.Parent = Workspace
 				rangeRings[key] = p
 			end
-			local d = math.min(clamp(diam, 1, 30), 29)
+			local d = clamp(diam, 1, 40)
 			local c = S.rainbowRings and Color3.fromHSV((tNow * 0.25 + idx * 0.14) % 1, 0.85, 1) or col
 			p.Size = Vector3.new(d, d, d)
 			p.CFrame = CFrame.new(basePos)
 			p.Color = c
 			p.Transparency = 0.55
 		end
-		setSphere("shoot", S.reachVisual and S.autoShoot, S.autoShootRange, S.ringColors.shoot, 0)
-		setSphere("dribble", S.reachVisual and S.autoDribble, S.autoDribbleRange, S.ringColors.dribble, 1)
-		setSphere("tackle", S.reachVisual and S.autoTackle, S.autoTackleRange, S.ringColors.tackle, 2)
-		setSphere("save", S.reachVisual and S.autoSave, S.autoSaveRange, S.ringColors.save, 3)
+		setSphere("shoot", S.reachVisual and S.autoShoot, S.autoShootRange + 2, S.ringColors.shoot, 0)
+		setSphere("dribble", S.reachVisual and S.autoDribble, S.autoDribbleRange + 2, S.ringColors.dribble, 1)
+		setSphere("tackle", S.reachVisual and S.autoTackle, S.autoTackleRange + 2, S.ringColors.tackle, 2)
+		setSphere("save", S.reachVisual and S.autoSave, S.autoSaveRange + 2, S.ringColors.save, 3)
 		if rangeRings.reach then rangeRings.reach.Transparency = 1 end
 	end
 
