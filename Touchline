@@ -3094,6 +3094,15 @@ hCredits:AddCredit("3qr311", "Scripter")
 		return true
 	end
 
+	local function inRange(hrpPos, ballPos, rangeStuds)
+		local dx = ballPos.X - hrpPos.X
+		local dz = ballPos.Z - hrpPos.Z
+		local dy = math.abs(ballPos.Y - hrpPos.Y)
+		local xzDist = math.sqrt(dx * dx + dz * dz)
+		local radius = clamp(rangeStuds, 1, 35) * 0.5
+		return xzDist <= (radius + 1.0) and dy <= math.max(radius + 4, 14)
+	end
+
 	local reachToken = 0
 	local lastDetectAt = 0
 	local function runReachWindow(duration, action, fixedPower)
@@ -3123,8 +3132,8 @@ hCredits:AddCredit("3qr311", "Scripter")
 				local hrp, ball = getHRP(), getBall()
 				if hrp and ball and not ball.Anchored then
 					local dist = (ball.Position - hrp.Position).Magnitude
-					local maxR = S.reachOn and (S.reach * 0.5) or 5.5
-					if dist <= maxR and not invoking and (os.clock() - lastAttempt) >= 0.055 then
+					local hitOk = S.reachOn and inRange(hrp.Position, ball.Position, S.reach) or (dist <= 5.5)
+					if hitOk and not invoking and (os.clock() - lastAttempt) >= 0.055 then
 						lastAttempt = os.clock()
 						local hum = getHum()
 						local dir = flatUnit(hrp.CFrame.LookVector)
@@ -3945,15 +3954,14 @@ hCredits:AddCredit("3qr311", "Scripter")
 				local ball, hrp = getBall(), getHRP()
 				if ball and hrp and not ball.Anchored then
 					local now = os.clock()
-					local dist = (ball.Position - hrp.Position).Magnitude
-					if S.autoShoot and dist <= (S.autoShootRange * 0.5) and ball.AssemblyLinearVelocity.Magnitude < 95 and (now - lastShot) >= S.autoShootDelay then
+					if S.autoShoot and inRange(hrp.Position, ball.Position, S.autoShootRange) and ball.AssemblyLinearVelocity.Magnitude < 95 and (now - lastShot) >= S.autoShootDelay then
 						lastShot = now
 						kickBall("Shoot", getEffectivePower("Shoot", ball), { ball = ball })
-					elseif S.autoDribble and dist <= (S.autoDribbleRange * 0.5) and (now - lastDrib) >= S.autoDribbleDelay then
+					elseif S.autoDribble and inRange(hrp.Position, ball.Position, S.autoDribbleRange) and (now - lastDrib) >= S.autoDribbleDelay then
 						lastDrib = now
 						local hum = getHum()
 						kickBall("Dribble", 0.12, { ball = ball, dir = flatUnit(hum and hum.MoveDirection, hrp.CFrame.LookVector), autoAim = false })
-					elseif S.autoTackle and dist <= (S.autoTackleRange * 0.5) and (now - lastTackle) >= 0.35 and isOpponentHoldingBall(ball) then
+					elseif S.autoTackle and inRange(hrp.Position, ball.Position, S.autoTackleRange) and (now - lastTackle) >= 0.35 and isOpponentHoldingBall(ball) then
 						lastTackle = now
 						kickBall("Tackle", 0, { ball = ball, dir = flatUnit(ball.Position - hrp.Position, hrp.CFrame.LookVector), autoAim = false })
 					end
@@ -3964,7 +3972,7 @@ hCredits:AddCredit("3qr311", "Scripter")
 							local netDist = (ball.Position - netCF.Position).Magnitude
 							local toward = netCF.Position - ball.Position
 							local spd = ball.AssemblyLinearVelocity.Magnitude
-							if dist <= (S.autoSaveRange * 0.5) and netDist <= S.autoSaveRange and spd > 2 and toward.Magnitude > 0.1 and ball.AssemblyLinearVelocity.Unit:Dot(toward.Unit) > 0.3 then
+							if inRange(hrp.Position, ball.Position, S.autoSaveRange) and netDist <= S.autoSaveRange and spd > 2 and toward.Magnitude > 0.1 and ball.AssemblyLinearVelocity.Unit:Dot(toward.Unit) > 0.3 then
 								lastSave = now
 								kickBall("Save", 0.15, { ball = ball, dir = -toward, autoAim = false })
 							end
