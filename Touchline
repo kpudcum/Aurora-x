@@ -2655,6 +2655,7 @@ hCredits:AddCredit("3qr311", "Scripter")
 		lmbAutoAim = false,
 		reachOn = false,
 		reach = 14,
+		farMode = "Spoof",
 		goalSide = "Auto",
 		aim = "Center",
 		autoAim = false,
@@ -3151,12 +3152,20 @@ hCredits:AddCredit("3qr311", "Scripter")
 	end
 
 	local function inRange(hrp, ball, rangeStuds)
-		-- slider value = real radius in studs (sphere radius is the same number)
-		return getClosestLimbDist(hrp, ball) <= clamp(rangeStuds, 1, 35) + 0.5
+		-- slider value = sphere diameter in studs; the hit triggers exactly when the ball is inside the sphere
+		return getClosestLimbDist(hrp, ball) <= clamp(rangeStuds, 1, 30) * 0.5 + 0.5
 	end
 
 	-- Kick position for far balls: the character stays where it is, only the position sent with the kick is
 	-- placed right next to the ball (ping-led), so the server sees a normal close-range touch.
+	local snapHome, snapTok = nil, 0
+	local function restoreSnapHome()
+		if not snapHome then return end
+		local cf = snapHome
+		snapHome = nil
+		local h = getHRP()
+		if h then h.CFrame = cf h.AssemblyLinearVelocity = Vector3.zero end
+	end
 	local function farKickCF(hrp, ball, dir, baseCF)
 		local d3 = (ball.Position - hrp.Position).Magnitude
 		if d3 <= 6 then return baseCF end
@@ -3165,7 +3174,17 @@ hCredits:AddCredit("3qr311", "Scripter")
 		local lead = ball.Position + ball.AssemblyLinearVelocity * clamp(ping, 0.02, 0.25)
 		local y = clamp(lead.Y, hrp.Position.Y - 3, hrp.Position.Y + 6)
 		local stand = Vector3.new(lead.X - dir.X * 1.5, y, lead.Z - dir.Z * 1.5)
-		return CFrame.lookAt(stand, stand + dir)
+		local cf = CFrame.lookAt(stand, stand + dir)
+		if S.farMode == "Snap" then
+			-- real position next to the ball for a moment (server sees you there), then back
+			if not snapHome then snapHome = hrp.CFrame end
+			hrp.CFrame = cf
+			hrp.AssemblyLinearVelocity = Vector3.zero
+			snapTok = snapTok + 1
+			local my = snapTok
+			task.delay(0.22, function() if my == snapTok then restoreSnapHome() end end)
+		end
+		return cf
 	end
 
 	local reachToken = 0
@@ -3267,7 +3286,7 @@ hCredits:AddCredit("3qr311", "Scripter")
 						local cf, sz, params = ...
 						if typeof(sz) == "Vector3" and sz.X <= 8 and sz.Y <= 8 and sz.Z <= 8 then
 							boundsHookSeen = true
-							local d = clamp(S.reach, 1, 35) * 2 + 1
+							local d = clamp(S.reach, 1, 30) + 1
 							return oldNC(self, cf, Vector3.new(d, math.max(d, 30), d), params)
 						end
 					elseif (S.reachOn or S.powerLock or S.lmbAutoAim or S.ground or S.curveR or S.curveL) then
@@ -3693,18 +3712,18 @@ hCredits:AddCredit("3qr311", "Scripter")
 				p.Parent = Workspace
 				rangeRings[key] = p
 			end
-			local d = clamp(diam, 1, 71)
+			local d = clamp(diam, 1, 31)
 			local c = S.rainbowRings and Color3.fromHSV((tNow * 0.25 + idx * 0.14) % 1, 0.85, 1) or col
 			p.Size = Vector3.new(d, d, d)
 			p.CFrame = CFrame.new(basePos)
 			p.Color = c
 			p.Transparency = 0.55
 		end
-		setSphere("shoot", S.reachVisual and S.autoShoot, S.autoShootRange * 2 + 1, S.ringColors.shoot, 0)
-		setSphere("dribble", S.reachVisual and S.autoDribble, S.autoDribbleRange * 2 + 1, S.ringColors.dribble, 1)
-		setSphere("tackle", S.reachVisual and S.autoTackle, S.autoTackleRange * 2 + 1, S.ringColors.tackle, 2)
-		setSphere("save", S.reachVisual and S.autoSave, S.autoSaveRange * 2 + 1, S.ringColors.save, 3)
-		setSphere("reach", S.reachVisual and S.reachOn, S.reach * 2 + 1, S.ringColors.reach, 4)
+		setSphere("shoot", S.reachVisual and S.autoShoot, S.autoShootRange + 1, S.ringColors.shoot, 0)
+		setSphere("dribble", S.reachVisual and S.autoDribble, S.autoDribbleRange + 1, S.ringColors.dribble, 1)
+		setSphere("tackle", S.reachVisual and S.autoTackle, S.autoTackleRange + 1, S.ringColors.tackle, 2)
+		setSphere("save", S.reachVisual and S.autoSave, S.autoSaveRange + 1, S.ringColors.save, 3)
+		setSphere("reach", S.reachVisual and S.reachOn, S.reach + 1, S.ringColors.reach, 4)
 	end
 
 	-- ============================================================
@@ -3876,7 +3895,8 @@ hCredits:AddCredit("3qr311", "Scripter")
 		S.reachOn = on
 		if on then hookGameModules() end
 	end)
-	rManual:AddSlider("Reach Radius (studs)", 3, 35, S.reach, function(v) S.reach = v end, 1)
+	rManual:AddSlider("Reach Size (studs)", 3, 30, S.reach, function(v) S.reach = v end, 1)
+	rManual:AddDropdown("Far Hit Mode", { "Spoof", "Snap" }, S.farMode, function(v) S.farMode = v end)
 
 	local rAuto = ReachTab:AddSection("Auto Reach")
 	toggleRefs.autoShoot = rAuto:AddToggle("Auto Shoot", S.autoShoot, function(on) S.autoShoot = on paintMobBtn("autoShoot") end)
@@ -4227,6 +4247,7 @@ hCredits:AddCredit("3qr311", "Scripter")
 			if gameTouchMod and origTouchDetect then pcall(function() gameTouchMod.Detect = origTouchDetect end) origTouchDetect = nil end
 			for _, c in ipairs(caddeConns) do pcall(function() c:Disconnect() end) end
 			caddeConns = {}
+			pcall(restoreSnapHome)
 			pcall(applyFullbright, false)
 			pcall(applyFpsBoost, false)
 			pcall(applyClearNets, false)
