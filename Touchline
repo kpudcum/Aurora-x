@@ -733,7 +733,7 @@ function Aurora:CreateWindow(titleText, subtitle)
 	-- Sekme adina gore secilir (adi icinde anahtar kelime gecenler de eslesir).
 	local ICON_KEYS = {
 		{ "home", "home" }, { "player", "player" }, { "server", "server" }, { "visual", "visuals" }, { "esp", "esp" },
-		{ "aim", "aimbot" }, { "shoot", "aimbot" }, { "hit", "hitbox" }, { "auto", "hitbox" }, { "setting", "settings" }, { "config", "settings" }, { "teleport", "teleport" },
+		{ "aim", "aimbot" }, { "shoot", "aimbot" }, { "hit", "hitbox" }, { "reach", "hitbox" }, { "auto", "hitbox" }, { "setting", "settings" }, { "config", "settings" }, { "teleport", "teleport" },
 		{ "grab", "grab" }, { "combat", "aimbot" }, { "toy", "hitbox" }, { "move", "teleport" },
 	}
 	local function tabIconKind(tabName)
@@ -2693,6 +2693,14 @@ hCredits:AddCredit("3qr311", "Scripter")
 		landingMarker = false,
 		goalMarker = false,
 		reachVisual = true,
+		rainbowRings = false,
+		ringColors = {
+			reach = Color3.fromRGB(0, 175, 255),
+			shoot = Color3.fromRGB(255, 82, 95),
+			dribble = Color3.fromRGB(0, 235, 160),
+			tackle = Color3.fromRGB(175, 105, 255),
+			save = Color3.fromRGB(255, 191, 71),
+		},
 		nativeHitbox = false,
 		clearNets = false,
 		fullbright = false,
@@ -3223,7 +3231,8 @@ hCredits:AddCredit("3qr311", "Scripter")
 		local dir = flatUnit(rawDir, hrp.CFrame.LookVector)
 		if aimLocked then hrp.CFrame = CFrame.lookAt(hrp.Position, hrp.Position + dir) end
 		local dist = (ball.Position - hrp.Position).Magnitude
-		local useCF = dist > 6 and CFrame.lookAt(ball.Position - dir * 1.5, ball.Position + dir) or hrp.CFrame
+		local leadPos = ball.Position + ball.AssemblyLinearVelocity * 0.04
+		local useCF = dist > 5 and CFrame.lookAt(leadPos - dir * 1.4, leadPos + dir) or hrp.CFrame
 		return firePayload(buildPayload(ball, action, power, useCF, dir))
 	end
 
@@ -3512,6 +3521,7 @@ hCredits:AddCredit("3qr311", "Scripter")
 		local ball = getBall()
 		local basePos = ball and ball.Position or nil
 		local halfY = ball and (ball.Size.Y * 0.5) or 1.2
+		local tNow = os.clock()
 		local function setRing(key, vis, diam, col, idx)
 			local p = rangeRings[key]
 			if not vis or not basePos then
@@ -3528,13 +3538,14 @@ hCredits:AddCredit("3qr311", "Scripter")
 			local d = clamp(diam, 1, 35)
 			p.Size = Vector3.new(0.10, d, d)
 			p.CFrame = CFrame.new(basePos.X, basePos.Y - halfY - (idx * 0.04), basePos.Z) * CFrame.Angles(0, 0, math.rad(90))
-			p.Color = col
+			p.Color = S.rainbowRings and Color3.fromHSV((tNow * 0.25 + idx * 0.14) % 1, 0.85, 1) or col
 			p.Transparency = 0.5
 		end
-		setRing("reach", S.reachVisual and S.reachOn, S.reach, COL.accent2, 0)
-		setRing("dribble", S.reachVisual and S.autoDribble, S.autoDribbleRange, COL.accent, 1)
-		setRing("shoot", S.reachVisual and S.autoShoot, S.autoShootRange, COL.danger, 2)
-		setRing("save", S.reachVisual and S.autoSave, S.autoSaveRange, COL.warn, 3)
+		setRing("reach", S.reachVisual and S.reachOn, S.reach, S.ringColors.reach, 0)
+		setRing("shoot", S.reachVisual and S.autoShoot, S.autoShootRange, S.ringColors.shoot, 1)
+		setRing("dribble", S.reachVisual and S.autoDribble, S.autoDribbleRange, S.ringColors.dribble, 2)
+		setRing("tackle", S.reachVisual and S.autoTackle, S.autoTackleRange, S.ringColors.tackle, 3)
+		setRing("save", S.reachVisual and S.autoSave, S.autoSaveRange, S.ringColors.save, 4)
 	end
 
 	-- ============================================================
@@ -3656,10 +3667,10 @@ hCredits:AddCredit("3qr311", "Scripter")
 		end
 	end
 
-	-- 2. SHOOT TAB (aimbot icon)
+	-- 2. SHOOT TAB (aimbot icon — Power, Aim, Curve & Auto Timing/Skills)
 	local ShootTab = Window:AddTab("Shoot", "o")
 
-	local kPower = ShootTab:AddSection("Power & LMB Hook")
+	local kPower = ShootTab:AddSection("Power & Aim")
 	toggleRefs.powerLock = kPower:AddToggle("Power Lock (Instant Power)", S.powerLock, function(on)
 		S.powerLock = on
 		applyInstantChargeOption(on)
@@ -3672,19 +3683,12 @@ hCredits:AddCredit("3qr311", "Scripter")
 		S.lmbAutoAim = on
 		if on then hookGameModules() end
 	end)
-	toggleRefs.reachOn = kPower:AddToggle("Extended Reach (Hitbox)", S.reachOn, function(on)
-		S.reachOn = on
-		if on then hookGameModules() end
-	end)
+	kPower:AddToggle("Hub Auto Aim", S.autoAim, function(on) S.autoAim = on end)
 	kPower:AddSlider("Kick Power (%)", 5, 100, 100, function(v)
 		S.power = clamp(v / 100, 0.05, 1)
 	end, 5)
-	kPower:AddSlider("Reach Range (studs)", 3, 35, S.reach, function(v)
-		S.reach = v
-	end, 1)
 
-	local kAim = ShootTab:AddSection("Goal Aim & Quick Actions")
-	kAim:AddToggle("Hub Auto Aim", S.autoAim, function(on) S.autoAim = on end)
+	local kAim = ShootTab:AddSection("Quick Actions")
 	kAim:AddButton("Shoot to Goal", kickToGoal)
 	kAim:AddButton("Pass to Teammate", passToTeammate)
 	addKeyOrMobile(kAim, "Shoot to Goal Key", "shootGoal", "SHOOT", 1, false, nil, kickToGoal)
@@ -3697,48 +3701,64 @@ hCredits:AddCredit("3qr311", "Scripter")
 	kCurve:AddToggle("Left Curve", S.curveL, function(on) S.curveL = on syncGameToggle("curveL", on) end)
 	kCurve:AddToggle("Ground Shot", S.ground, function(on) S.ground = on syncGameToggle("ground", on) end)
 
-	local kQuick = ShootTab:AddSection("Special Actions")
-	kQuick:AddButton("Tackle", function() kickBall("Tackle", 0) end)
-	kQuick:AddButton("Goalkeeper Save", function() kickBall("Save", 0.15) end)
-	kQuick:AddButton("Dive", function() kickBall("Dive", 0) end)
-	kQuick:AddButton("Trigger Skill", function() fireTouchChild("Skill", "Skill triggered") end)
+	local kAutoSet = ShootTab:AddSection("Auto Settings & Skills")
+	kAutoSet:AddToggle("No Tackle Slowdown & CD", S.noTackleSlow, function(on) S.noTackleSlow = on end)
+	kAutoSet:AddToggle("Auto Skill", S.autoSkill, function(on) S.autoSkill = on end)
+	kAutoSet:AddButton("Tackle", function() kickBall("Tackle", 0) end)
+	kAutoSet:AddButton("Goalkeeper Save", function() kickBall("Save", 0.15) end)
+	kAutoSet:AddButton("Dive", function() kickBall("Dive", 0) end)
+	kAutoSet:AddButton("Trigger Skill", function() fireTouchChild("Skill", "Skill triggered") end)
+	kAutoSet:AddSlider("Auto Shoot Delay (s)", 0.15, 2.0, S.autoShootDelay, function(v) S.autoShootDelay = v end, 0.05)
+	kAutoSet:AddSlider("Dribble Delay (s)", 0.1, 1.5, S.autoDribbleDelay, function(v) S.autoDribbleDelay = v end, 0.05)
 
-	-- 3. AUTO TAB (hitbox icon)
-	local AutoTab = Window:AddTab("Auto", "o")
+	-- 3. REACH TAB (hitbox icon — Manual Reach + All Auto Reaches + Colors & Rainbow)
+	local ReachTab = Window:AddTab("Reach", "o")
 
-	local aShoot = AutoTab:AddSection("Auto Shoot")
-	toggleRefs.autoShoot = aShoot:AddToggle("Auto Shoot", S.autoShoot, function(on) S.autoShoot = on paintMobBtn("autoShoot") end)
-	addKeyOrMobile(aShoot, "Auto Shoot Key", "autoShoot", "A.SHT", 3, true, function() return S.autoShoot end, function()
+	local rManual = ReachTab:AddSection("Manual Reach")
+	toggleRefs.reachOn = rManual:AddToggle("Extended Reach (Hitbox)", S.reachOn, function(on)
+		S.reachOn = on
+		if on then hookGameModules() end
+	end)
+	rManual:AddSlider("Reach Range (studs)", 3, 35, S.reach, function(v) S.reach = v end, 1)
+
+	local rAuto = ReachTab:AddSection("Auto Reach")
+	toggleRefs.autoShoot = rAuto:AddToggle("Auto Shoot", S.autoShoot, function(on) S.autoShoot = on paintMobBtn("autoShoot") end)
+	toggleRefs.autoDribble = rAuto:AddToggle("Auto Dribble", S.autoDribble, function(on) S.autoDribble = on paintMobBtn("autoDribble") end)
+	toggleRefs.autoTackle = rAuto:AddToggle("Auto Tackle (Opponent Only)", S.autoTackle, function(on) S.autoTackle = on paintMobBtn("autoTackle") end)
+	toggleRefs.autoSave = rAuto:AddToggle("Auto Goalkeeper", S.autoSave, function(on) S.autoSave = on paintMobBtn("autoSave") end)
+	addKeyOrMobile(rAuto, "Auto Shoot Key", "autoShoot", "A.SHT", 3, true, function() return S.autoShoot end, function()
 		if toggleRefs.autoShoot then toggleRefs.autoShoot.Set(not S.autoShoot) end
 	end)
-	aShoot:AddSlider("Auto Shoot Range (studs)", 4, 35, S.autoShootRange, function(v) S.autoShootRange = v end, 1)
-	aShoot:AddSlider("Auto Shoot Delay (s)", 0.15, 2.0, S.autoShootDelay, function(v) S.autoShootDelay = v end, 0.05)
-
-	local aDrib = AutoTab:AddSection("Auto Dribble")
-	toggleRefs.autoDribble = aDrib:AddToggle("Auto Dribble", S.autoDribble, function(on) S.autoDribble = on paintMobBtn("autoDribble") end)
-	addKeyOrMobile(aDrib, "Auto Dribble Key", "autoDribble", "DRIB", 4, true, function() return S.autoDribble end, function()
+	addKeyOrMobile(rAuto, "Auto Dribble Key", "autoDribble", "DRIB", 4, true, function() return S.autoDribble end, function()
 		if toggleRefs.autoDribble then toggleRefs.autoDribble.Set(not S.autoDribble) end
 	end)
-	aDrib:AddSlider("Dribble Range (studs)", 3, 35, S.autoDribbleRange, function(v) S.autoDribbleRange = v end, 1)
-	aDrib:AddSlider("Dribble Delay (s)", 0.1, 1.5, S.autoDribbleDelay, function(v) S.autoDribbleDelay = v end, 0.05)
-
-	local aTackle = AutoTab:AddSection("Auto Tackle & Skill")
-	toggleRefs.autoTackle = aTackle:AddToggle("Auto Tackle (Opponent Only)", S.autoTackle, function(on) S.autoTackle = on paintMobBtn("autoTackle") end)
-	aTackle:AddToggle("No Tackle Slowdown & CD", S.noTackleSlow, function(on) S.noTackleSlow = on end)
-	aTackle:AddToggle("Auto Skill", S.autoSkill, function(on) S.autoSkill = on end)
-	addKeyOrMobile(aTackle, "Auto Tackle Key", "autoTackle", "TCKL", 5, true, function() return S.autoTackle end, function()
+	addKeyOrMobile(rAuto, "Auto Tackle Key", "autoTackle", "TCKL", 5, true, function() return S.autoTackle end, function()
 		if toggleRefs.autoTackle then toggleRefs.autoTackle.Set(not S.autoTackle) end
 	end)
-	aTackle:AddSlider("Tackle Range (studs)", 3, 35, S.autoTackleRange, function(v) S.autoTackleRange = v end, 1)
-
-	local aGk = AutoTab:AddSection("Auto Goalkeeper")
-	toggleRefs.autoSave = aGk:AddToggle("Auto Goalkeeper", S.autoSave, function(on) S.autoSave = on paintMobBtn("autoSave") end)
-	addKeyOrMobile(aGk, "Auto Goalkeeper Key", "autoSave", "GK", 6, true, function() return S.autoSave end, function()
+	addKeyOrMobile(rAuto, "Auto Goalkeeper Key", "autoSave", "GK", 6, true, function() return S.autoSave end, function()
 		if toggleRefs.autoSave then toggleRefs.autoSave.Set(not S.autoSave) end
 	end)
-	aGk:AddSlider("Goalkeeper Range (studs)", 6, 35, S.autoSaveRange, function(v) S.autoSaveRange = v end, 1)
+	rAuto:AddSlider("Auto Shoot Range (studs)", 4, 35, S.autoShootRange, function(v) S.autoShootRange = v end, 1)
+	rAuto:AddSlider("Dribble Range (studs)", 3, 35, S.autoDribbleRange, function(v) S.autoDribbleRange = v end, 1)
+	rAuto:AddSlider("Tackle Range (studs)", 3, 35, S.autoTackleRange, function(v) S.autoTackleRange = v end, 1)
+	rAuto:AddSlider("Goalkeeper Range (studs)", 6, 35, S.autoSaveRange, function(v) S.autoSaveRange = v end, 1)
 
-	-- 4. MOVEMENT TAB (movement icon — Jump & Auto Chase only)
+	local rVis = ReachTab:AddSection("Reach Ring Visuals & Colors")
+	rVis:AddToggle("Show Reach Rings (0.5)", S.reachVisual, function(on) S.reachVisual = on end)
+	rVis:AddToggle("Rainbow Reach Rings", S.rainbowRings, function(on) S.rainbowRings = on end)
+	local function addRingColor(title, key)
+		rVis:AddColorPicker(title, S.ringColors[key], function(c)
+			if S.rainbowRings then return end
+			S.ringColors[key] = c
+		end)
+	end
+	addRingColor("Reach Ring Color", "reach")
+	addRingColor("Auto Shoot Ring Color", "shoot")
+	addRingColor("Auto Dribble Ring Color", "dribble")
+	addRingColor("Auto Tackle Ring Color", "tackle")
+	addRingColor("Auto Goalkeeper Ring Color", "save")
+
+	-- 4. MOVEMENT TAB (movement icon — Jump, Auto Chase & Utility)
 	local MoveTab = Window:AddTab("Movement", "o")
 
 	local mJump = MoveTab:AddSection("Jump")
@@ -3757,24 +3777,12 @@ hCredits:AddCredit("3qr311", "Scripter")
 	end)
 	mChase:AddSlider("Chase Speed", 10, 45, S.chaseSpeed, function(v) S.chaseSpeed = v end, 1)
 
-	-- 5. PLAYER TAB (player icon — AuraX_main compatible Actions + Mobile Button Settings)
-	local PlayerTab = Window:AddTab("Player", "o")
-
-	local pAct = PlayerTab:AddSection("Actions")
-	pAct:AddButton("Reset Character", function()
-		local h = getHum()
-		if h then h.Health = 0 end
-	end)
-	pAct:AddButton("Get Up (GettingUp)", function() local h = getHum() if h then h:ChangeState(Enum.HumanoidStateType.GettingUp) end end)
-	pAct:AddButton("Camera: Focus Ball", function() local cam, b = Workspace.CurrentCamera, getBall() if cam and b then cam.CameraSubject = b end end)
-	pAct:AddButton("Camera: Focus Character", function() local cam, h = Workspace.CurrentCamera, getHum() if cam and h then cam.CameraSubject = h end end)
-	addKeyOrMobile(pAct, "Reset Keybind", "resetChar", "RST", 8, false, nil, function()
-		local h = getHum()
-		if h then h.Health = 0 end
-	end)
+	local mUtil = MoveTab:AddSection("Utility")
+	mUtil:AddToggle("Anti AFK", S.antiAfk, function(on) S.antiAfk = on end)
+	mUtil:AddToggle("Anti-Ragdoll (Instant Get Up)", S.antiRagdoll, function(on) S.antiRagdoll = on end)
 
 	if AIM_MOBILE then
-		local pMob = PlayerTab:AddSection("Mobile Floating Buttons")
+		local pMob = MoveTab:AddSection("Mobile Floating Buttons")
 		pMob:AddButton("Reset Floating Button Positions", function()
 			for _, rec in pairs(mobileFloatBtns) do
 				if rec.btn and rec.btn.Parent then rec.btn.Position = rec.defaultPos end
@@ -3794,15 +3802,7 @@ hCredits:AddCredit("3qr311", "Scripter")
 		pMob:AddLabel("Tap any floating button to toggle/run. Drag to reposition anywhere on screen.")
 	end
 
-	-- 6. SERVER TAB (server icon — AuraX_main Utility: Anti AFK + Anti Ragdoll)
-	local ServerTab = Window:AddTab("Server", "o")
-	local svUtil = ServerTab:AddSection("Utility")
-	svUtil:AddToggle("Anti AFK", S.antiAfk, function(on)
-		S.antiAfk = on
-	end)
-	svUtil:AddToggle("Anti-Ragdoll (Instant Get Up)", S.antiRagdoll, function(on) S.antiRagdoll = on end)
-
-	-- 7. ESP TAB (esp icon — ESP, Range Rings & World)
+	-- 5. ESP TAB (esp icon — ESP & World)
 	local EspTab = Window:AddTab("ESP", "o")
 
 	local vEsp = EspTab:AddSection("Ball & Player ESP")
@@ -3811,12 +3811,11 @@ hCredits:AddCredit("3qr311", "Scripter")
 	vEsp:AddToggle("Ball Trajectory Line", S.trajectory, function(on) S.trajectory = on end)
 	vEsp:AddToggle("Ball Landing Marker", S.landingMarker, function(on) S.landingMarker = on end)
 	vEsp:AddToggle("Goal Target Marker", S.goalMarker, function(on) S.goalMarker = on end)
-	vEsp:AddToggle("Ball Range Rings (0.5)", S.reachVisual, function(on) S.reachVisual = on end)
 	vEsp:AddToggle("Show Game Hitboxes (Debug)", S.nativeHitbox, function(on) S.nativeHitbox = on setLocalOption("Hitboxes", on) end)
-	addKeyOrMobile(vEsp, "Ball ESP Key", "ballEsp", "B.ESP", 9, true, function() return S.ballEsp end, function()
+	addKeyOrMobile(vEsp, "Ball ESP Key", "ballEsp", "B.ESP", 8, true, function() return S.ballEsp end, function()
 		if toggleRefs.ballEsp then toggleRefs.ballEsp.Set(not S.ballEsp) end
 	end)
-	addKeyOrMobile(vEsp, "Player ESP Key", "playerEsp", "P.ESP", 10, true, function() return S.playerEsp end, function()
+	addKeyOrMobile(vEsp, "Player ESP Key", "playerEsp", "P.ESP", 9, true, function() return S.playerEsp end, function()
 		if toggleRefs.playerEsp then toggleRefs.playerEsp.Set(not S.playerEsp) end
 	end)
 
@@ -3905,16 +3904,34 @@ hCredits:AddCredit("3qr311", "Scripter")
 		end
 	end)
 
+	local reachToken = 0
 	local function onManualKickRelease()
 		if not (S.reachOn or S.lmbAutoAim or S.powerLock) or not canAct() then return end
-		local ball, hrp = getBall(), getHRP()
-		if not ball or not hrp or ball.Anchored then return end
-		local dist = (ball.Position - hrp.Position).Magnitude
-		local maxR = S.reachOn and (S.reach * 0.5) or 5.5
-		if dist <= maxR then
-			local pwr = getEffectivePower("Shoot", ball)
-			kickBall((S.powerLock and pwr <= 0.3) and "Dribble" or "Shoot", pwr, { ball = ball, autoAim = S.lmbAutoAim })
-		end
+		reachToken = reachToken + 1
+		local myTok = reachToken
+		task.spawn(function()
+			local t0 = os.clock()
+			while alive and myTok == reachToken and (os.clock() - t0) < 0.45 do
+				local ball, hrp = getBall(), getHRP()
+				if ball and hrp and not ball.Anchored then
+					local dist = (ball.Position - hrp.Position).Magnitude
+					local maxR = S.reachOn and (S.reach * 0.5) or 5.5
+					if dist <= maxR then
+						local pwr = getEffectivePower("Shoot", ball)
+						local hum = getHum()
+						local moveDir = (not S.lmbAutoAim and hum and hum.MoveDirection.Magnitude >= 0.05) and hum.MoveDirection or nil
+						kickBall((S.powerLock and pwr <= 0.3) and "Dribble" or "Shoot", pwr, {
+							ball = ball,
+							dir = moveDir,
+							autoAim = S.lmbAutoAim,
+							ignoreCooldown = true,
+						})
+						return
+					end
+				end
+				RunService.Heartbeat:Wait()
+			end
+		end)
 	end
 
 	track(UserInputService.InputEnded:Connect(function(inp, gp)
@@ -4032,7 +4049,6 @@ hCredits:AddCredit("3qr311", "Scripter")
 			if not alive or Aurora._keyListening or os.clock() < keySkipUntil or (Aurora._keySkipUntil and os.clock() < Aurora._keySkipUntil) or UserInputService:GetFocusedTextBox() then return end
 			if matchesKey(inp, keyBinds.shootGoal) then kickToGoal()
 			elseif matchesKey(inp, keyBinds.passTeam) then passToTeammate()
-			elseif matchesKey(inp, keyBinds.resetChar) then local h = getHum() if h then h.Health = 0 end
 			elseif matchesKey(inp, keyBinds.autoShoot) and toggleRefs.autoShoot then toggleRefs.autoShoot.Set(not S.autoShoot)
 			elseif matchesKey(inp, keyBinds.autoDribble) and toggleRefs.autoDribble then toggleRefs.autoDribble.Set(not S.autoDribble)
 			elseif matchesKey(inp, keyBinds.autoTackle) and toggleRefs.autoTackle then toggleRefs.autoTackle.Set(not S.autoTackle)
