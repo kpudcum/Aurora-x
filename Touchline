@@ -2651,13 +2651,13 @@ hCredits:AddCredit("3qr311", "Scripter")
 	local S = {
 		power = 1.0,
 		powerLock = false,
-		smartPower = true,
+		smartPower = false,
 		lmbAutoAim = false,
 		reachOn = false,
 		reach = 14,
 		goalSide = "Auto",
 		aim = "Center",
-		autoAim = true,
+		autoAim = false,
 		curveR = false,
 		curveL = false,
 		ground = false,
@@ -2673,7 +2673,7 @@ hCredits:AddCredit("3qr311", "Scripter")
 		autoTackle = false,
 		autoTackleRange = 14,
 		autoSkill = false,
-		noTackleSlow = true,
+		noTackleSlow = false,
 
 		defaultWalk = 22,
 		jumpOn = false,
@@ -2685,14 +2685,14 @@ hCredits:AddCredit("3qr311", "Scripter")
 		autoChase = false,
 		chaseSpeed = 28,
 		faceBall = false,
-		antiAfk = true,
+		antiAfk = false,
 
 		ballEsp = false,
 		playerEsp = false,
 		trajectory = false,
 		landingMarker = false,
 		goalMarker = false,
-		reachVisual = true,
+		reachVisual = false,
 		rainbowRings = false,
 		ringColors = {
 			reach = Color3.fromRGB(0, 175, 255),
@@ -3042,18 +3042,39 @@ hCredits:AddCredit("3qr311", "Scripter")
 		end
 	end
 
-	local function buildPayload(ball, action, power, shooterCF, worldDir)
+	local function getLiveChargePower()
+		if origChargeGet then
+			local ok, val = pcall(origChargeGet)
+			if ok and type(val) == "number" then return clamp(val, 0, 1) end
+		end
+		local pg = LP:FindFirstChild("PlayerGui")
+		local mainGui = pg and pg:FindFirstChild("Main")
+		local gameGui = mainGui and mainGui:FindFirstChild("Game")
+		local charge = gameGui and gameGui:FindFirstChild("Charge")
+		local bar = charge and charge:FindFirstChild("Bar")
+		if bar and bar:IsA("GuiObject") then
+			return math.floor(clamp(bar.Size.X.Scale, 0, 1) * 100 + 0.0001) / 100
+		end
+		return 0
+	end
+
+	local function buildPayload(ball, action, power, shooterCF, worldDir, moveVec)
 		local hrp = getHRP()
 		local cf = shooterCF or (hrp and hrp.CFrame) or CFrame.new()
 		local dir = flatUnit(worldDir, cf.LookVector)
-		local qPower = math.floor(clamp(power or 1, 0, 1) * 100 + 0.0001) / 100
+		local mv = moveVec
+		if mv == nil then
+			local hum = getHum()
+			mv = (hum and hum.MoveDirection.Magnitude >= 0.05) and hum.MoveDirection or dir
+		end
+		local qPower = math.floor(clamp(power or 0, 0, 1) * 100 + 0.0001) / 100
 		return {
 			ball,
 			action,
 			qPower,
 			{ Ground = S.ground or false, Right = S.curveR or false, Left = S.curveL or false },
 			cf,
-			cf:VectorToObjectSpace(dir),
+			cf:VectorToObjectSpace(mv),
 		}
 	end
 
@@ -3061,13 +3082,87 @@ hCredits:AddCredit("3qr311", "Scripter")
 		local touch = getTouchRemote()
 		if not touch then return false end
 		task.spawn(function()
-			pcall(function() touch:InvokeServer(payload) end)
+			local ok, res = pcall(function() return touch:InvokeServer(payload) end)
+			if ok and res == true and gameTouchMod and type(gameTouchMod.Confirm) == "function" then
+				pcall(gameTouchMod.Confirm, true)
+			end
 		end)
 		local kickEv = touch:FindFirstChild("Kick")
 		if isRemoteEventLike(kickEv) then
 			pcall(function() kickEv:FireServer(payload) end)
 		end
 		return true
+	end
+
+	local reachToken = 0
+	local lastDetectAt = 0
+	local function runReachWindow(duration, action, fixedPower)
+		reachToken = reachToken + 1
+		local myTok = reachToken
+		local dur = tonumber(duration) or 0.55
+		local act = action
+		local livePwr = fixedPower
+		if livePwr == nil then
+			livePwr = S.powerLock and getEffectivePower(act or "Shoot") or getLiveChargePower()
+		end
+		if not act then
+			local vals = getValues()
+			local goalie = vals and vals:FindFirstChild("Goalie")
+			if livePwr <= 0.3 then
+				act = (goalie and goalie.Value == true) and "Save" or "Dribble"
+			else
+				act = "Shoot"
+			end
+		end
+		task.spawn(function()
+			local start = os.clock()
+			local confirmed = false
+			local lastAttempt = 0
+			local invoking = false
+			while alive and myTok == reachToken and not confirmed and (os.clock() - start) < dur do
+				local hrp, ball = getHRP(), getBall()
+				if hrp and ball and not ball.Anchored then
+					local dist = (ball.Position - hrp.Position).Magnitude
+					local maxR = S.reachOn and (S.reach * 0.5) or 5.5
+					if dist <= maxR and not invoking and (os.clock() - lastAttempt) >= 0.055 then
+						lastAttempt = os.clock()
+						local hum = getHum()
+						local dir = flatUnit(hrp.CFrame.LookVector)
+						if S.lmbAutoAim and act == "Shoot" then
+							local aimPt = getAimPoint()
+							if aimPt then
+								dir = flatUnit(aimPt - ball.Position, dir)
+								hrp.CFrame = CFrame.lookAt(hrp.Position, hrp.Position + dir)
+							end
+						end
+						local leadPos = ball.Position + ball.AssemblyLinearVelocity * 0.035
+						local useCF = dist > 2.0 and CFrame.lookAt(leadPos - dir * 1.2, leadPos + dir) or hrp.CFrame
+						local moveVec = (S.lmbAutoAim and act == "Shoot") and dir or (hum and hum.MoveDirection or Vector3.zero)
+						local pwr = S.powerLock and getEffectivePower(act, ball) or livePwr
+						local payload = buildPayload(ball, act, pwr, useCF, dir, moveVec)
+						local touch = getTouchRemote()
+						if touch then
+							local kickEv = touch:FindFirstChild("Kick")
+							if isRemoteEventLike(kickEv) then
+								pcall(function() kickEv:FireServer(payload) end)
+							end
+							invoking = true
+							task.spawn(function()
+								local ok, res = pcall(function() return touch:InvokeServer(payload) end)
+								if ok and res == true then
+									confirmed = true
+									if gameTouchMod and type(gameTouchMod.Confirm) == "function" then
+										pcall(gameTouchMod.Confirm, true)
+									end
+								end
+								invoking = false
+							end)
+						end
+					end
+				end
+				RunService.Heartbeat:Wait()
+			end
+		end)
 	end
 
 	local cachedTouch, cachedKick, cachedAimPt = nil, nil, nil
@@ -3167,33 +3262,10 @@ hCredits:AddCredit("3qr311", "Scripter")
 		if gameTouchMod and type(gameTouchMod.Detect) == "function" and not origTouchDetect then
 			origTouchDetect = gameTouchMod.Detect
 			gameTouchMod.Detect = function(duration, action, ...)
+				lastDetectAt = os.clock()
 				if alive and (S.reachOn or S.lmbAutoAim or S.powerLock) then
-					task.spawn(function()
-						local start, dur, sent = os.clock(), tonumber(duration) or 0.5, false
-						while alive and not sent and (os.clock() - start) < dur do
-							local hrp, ball = getHRP(), getBall()
-							if hrp and ball and not ball.Anchored then
-								local dist = (ball.Position - hrp.Position).Magnitude
-								local maxR = S.reachOn and (S.reach * 0.5) or 5.5
-								if dist <= maxR then
-									local dir = flatUnit(hrp.CFrame.LookVector)
-									if S.lmbAutoAim and action == "Shoot" then
-										local aimPt = getAimPoint()
-										if aimPt then
-											dir = flatUnit(aimPt - ball.Position, dir)
-											hrp.CFrame = CFrame.lookAt(hrp.Position, hrp.Position + dir)
-										end
-									end
-									local useCF = dist > 6 and CFrame.lookAt(ball.Position - dir * 1.5, ball.Position + dir) or hrp.CFrame
-									local pwr = S.powerLock and getEffectivePower(action, ball) or (origChargeGet and origChargeGet() or 1)
-									firePayload(buildPayload(ball, action, pwr, useCF, dir))
-									sent = true
-									break
-								end
-							end
-							task.wait()
-						end
-					end)
+					local livePwr = S.powerLock and getEffectivePower(action) or getLiveChargePower()
+					runReachWindow(duration, action, livePwr)
 				end
 				return origTouchDetect(duration, action, ...)
 			end
@@ -3231,8 +3303,8 @@ hCredits:AddCredit("3qr311", "Scripter")
 		local dir = flatUnit(rawDir, hrp.CFrame.LookVector)
 		if aimLocked then hrp.CFrame = CFrame.lookAt(hrp.Position, hrp.Position + dir) end
 		local dist = (ball.Position - hrp.Position).Magnitude
-		local leadPos = ball.Position + ball.AssemblyLinearVelocity * 0.04
-		local useCF = dist > 5 and CFrame.lookAt(leadPos - dir * 1.4, leadPos + dir) or hrp.CFrame
+		local leadPos = ball.Position + ball.AssemblyLinearVelocity * 0.035
+		local useCF = dist > 2.0 and CFrame.lookAt(leadPos - dir * 1.2, leadPos + dir) or hrp.CFrame
 		return firePayload(buildPayload(ball, action, power, useCF, dir))
 	end
 
@@ -3904,38 +3976,19 @@ hCredits:AddCredit("3qr311", "Scripter")
 		end
 	end)
 
-	local reachToken = 0
 	local function onManualKickRelease()
 		if not (S.reachOn or S.lmbAutoAim or S.powerLock) or not canAct() then return end
-		reachToken = reachToken + 1
-		local myTok = reachToken
-		task.spawn(function()
-			local t0 = os.clock()
-			while alive and myTok == reachToken and (os.clock() - t0) < 0.45 do
-				local ball, hrp = getBall(), getHRP()
-				if ball and hrp and not ball.Anchored then
-					local dist = (ball.Position - hrp.Position).Magnitude
-					local maxR = S.reachOn and (S.reach * 0.5) or 5.5
-					if dist <= maxR then
-						local pwr = getEffectivePower("Shoot", ball)
-						local hum = getHum()
-						local moveDir = (not S.lmbAutoAim and hum and hum.MoveDirection.Magnitude >= 0.05) and hum.MoveDirection or nil
-						kickBall((S.powerLock and pwr <= 0.3) and "Dribble" or "Shoot", pwr, {
-							ball = ball,
-							dir = moveDir,
-							autoAim = S.lmbAutoAim,
-							ignoreCooldown = true,
-						})
-						return
-					end
-				end
-				RunService.Heartbeat:Wait()
-			end
+		local capturedPower = S.powerLock and getEffectivePower("Shoot") or getLiveChargePower()
+		task.defer(function()
+			if not alive then return end
+			-- gameTouchMod.Detect zaten tetiklendiyse cift gonderme yapma
+			if (os.clock() - lastDetectAt) < 0.08 then return end
+			runReachWindow(0.55, nil, capturedPower)
 		end)
 	end
 
-	track(UserInputService.InputEnded:Connect(function(inp, gp)
-		if gp or inp.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+	track(UserInputService.InputEnded:Connect(function(inp)
+		if inp.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
 		onManualKickRelease()
 	end))
 
