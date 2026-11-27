@@ -2664,10 +2664,10 @@ hCredits:AddCredit("3qr311", "Scripter")
 
 		autoShoot = false,
 		autoShootRange = 16,
-		autoShootDelay = 0.5,
+		autoShootDelay = 0,
 		autoDribble = false,
 		autoDribbleRange = 12,
-		autoDribbleDelay = 0.3,
+		autoDribbleDelay = 0,
 		autoSave = false,
 		autoSaveRange = 22,
 		autoTackle = false,
@@ -3078,29 +3078,83 @@ hCredits:AddCredit("3qr311", "Scripter")
 		}
 	end
 
-	local function firePayload(payload)
-		local touch = getTouchRemote()
+	local cachedTouch, cachedKick, cachedAimPt = nil, nil, nil
+	local function firePayload(payload, onResult)
+		local touch = cachedTouch or getTouchRemote()
 		if not touch then return false end
-		task.spawn(function()
-			local ok, res = pcall(function() return touch:InvokeServer(payload) end)
-			if ok and res == true and gameTouchMod and type(gameTouchMod.Confirm) == "function" then
-				pcall(gameTouchMod.Confirm, true)
-			end
-		end)
-		local kickEv = touch:FindFirstChild("Kick")
+		local kickEv = cachedKick or touch:FindFirstChild("Kick")
 		if isRemoteEventLike(kickEv) then
 			pcall(function() kickEv:FireServer(payload) end)
 		end
+		task.spawn(function()
+			local ok, res = pcall(function() return touch:InvokeServer(payload) end)
+			local confirmed = (ok and res == true)
+			if confirmed and gameTouchMod and type(gameTouchMod.Confirm) == "function" then
+				pcall(gameTouchMod.Confirm, true)
+			end
+			if onResult then onResult(confirmed) end
+		end)
 		return true
 	end
 
-	local function inRange(hrpPos, ballPos, rangeStuds)
-		local dx = ballPos.X - hrpPos.X
-		local dz = ballPos.Z - hrpPos.Z
-		local dy = math.abs(ballPos.Y - hrpPos.Y)
-		local xzDist = math.sqrt(dx * dx + dz * dz)
-		local radius = clamp(rangeStuds, 1, 35) * 0.5
-		return xzDist <= (radius + 1.0) and dy <= math.max(radius + 4, 14)
+	local cachedLimbChar = nil
+	local cachedLimbs = {}
+	local function getLimbs(char)
+		if char ~= cachedLimbChar then
+			cachedLimbChar = char
+			cachedLimbs = {}
+			if char then
+				for _, part in ipairs(char:GetChildren()) do
+					if part:IsA("BasePart") then
+						table.insert(cachedLimbs, part)
+					end
+				end
+			end
+		end
+		return cachedLimbs
+	end
+
+	local function getClosestLimbDist(hrp, ball)
+		local bp = ball.Position
+		local best = math.huge
+		local limbs = getLimbs(hrp.Parent)
+		for i = 1, #limbs do
+			local part = limbs[i]
+			if part and part.Parent then
+				local hp = part.Position
+				local dx, dz = bp.X - hp.X, bp.Z - hp.Z
+				local dNow = math.sqrt(dx * dx + dz * dz)
+				if dNow < best then best = dNow end
+			end
+		end
+		if best == math.huge then
+			local hp = hrp.Position
+			local dx, dz = bp.X - hp.X, bp.Z - hp.Z
+			best = math.sqrt(dx * dx + dz * dz)
+		end
+		return best
+	end
+
+	local function touchBallWithLimbs(hrp, ball)
+		if type(firetouchinterest) ~= "function" or not hrp or not ball then return end
+		local limbs = getLimbs(hrp.Parent)
+		for i = 1, #limbs do
+			local part = limbs[i]
+			if part and part.Parent then
+				pcall(firetouchinterest, part, ball, 0)
+			end
+		end
+		for i = 1, #limbs do
+			local part = limbs[i]
+			if part and part.Parent then
+				pcall(firetouchinterest, part, ball, 1)
+			end
+		end
+	end
+
+	local function inRange(hrp, ball, rangeStuds)
+		local radius = clamp(rangeStuds, 1, 30) * 0.5
+		return getClosestLimbDist(hrp, ball) <= (radius + 1.0)
 	end
 
 	local reachToken = 0
@@ -3108,7 +3162,7 @@ hCredits:AddCredit("3qr311", "Scripter")
 	local function runReachWindow(duration, action, fixedPower)
 		reachToken = reachToken + 1
 		local myTok = reachToken
-		local dur = tonumber(duration) or 0.55
+		local dur = math.max(tonumber(duration) or 0.55, 0.55)
 		local act = action
 		local livePwr = fixedPower
 		if livePwr == nil then
@@ -3123,58 +3177,61 @@ hCredits:AddCredit("3qr311", "Scripter")
 				act = "Shoot"
 			end
 		end
-		task.spawn(function()
-			local start = os.clock()
-			local confirmed = false
-			local lastAttempt = 0
-			local invoking = false
-			while alive and myTok == reachToken and not confirmed and (os.clock() - start) < dur do
-				local hrp, ball = getHRP(), getBall()
-				if hrp and ball and not ball.Anchored then
-					local dist = (ball.Position - hrp.Position).Magnitude
-					local hitOk = S.reachOn and inRange(hrp.Position, ball.Position, S.reach) or (dist <= 5.5)
-					if hitOk and not invoking and (os.clock() - lastAttempt) >= 0.055 then
-						lastAttempt = os.clock()
-						local hum = getHum()
-						local dir = flatUnit(hrp.CFrame.LookVector)
-						if S.lmbAutoAim and act == "Shoot" then
-							local aimPt = getAimPoint()
-							if aimPt then
-								dir = flatUnit(aimPt - ball.Position, dir)
-								hrp.CFrame = CFrame.lookAt(hrp.Position, hrp.Position + dir)
-							end
-						end
-						local leadPos = ball.Position + ball.AssemblyLinearVelocity * 0.035
-						local useCF = dist > 2.0 and CFrame.lookAt(leadPos - dir * 1.2, leadPos + dir) or hrp.CFrame
-						local moveVec = (S.lmbAutoAim and act == "Shoot") and dir or (hum and hum.MoveDirection or Vector3.zero)
-						local pwr = S.powerLock and getEffectivePower(act, ball) or livePwr
-						local payload = buildPayload(ball, act, pwr, useCF, dir, moveVec)
-						local touch = getTouchRemote()
-						if touch then
-							local kickEv = touch:FindFirstChild("Kick")
-							if isRemoteEventLike(kickEv) then
-								pcall(function() kickEv:FireServer(payload) end)
-							end
-							invoking = true
-							task.spawn(function()
-								local ok, res = pcall(function() return touch:InvokeServer(payload) end)
-								if ok and res == true then
-									confirmed = true
-									if gameTouchMod and type(gameTouchMod.Confirm) == "function" then
-										pcall(gameTouchMod.Confirm, true)
-									end
-								end
-								invoking = false
-							end)
-						end
+
+		local confirmed = false
+
+		local function trySend()
+			if confirmed then return end
+			local hrp, ball = getHRP(), getBall()
+			if not (hrp and ball and not ball.Anchored) then return end
+			local dist = (ball.Position - hrp.Position).Magnitude
+			local hitOk = S.reachOn and inRange(hrp, ball, S.reach) or (dist <= 5.5)
+			if not hitOk then return end
+
+			local hum = getHum()
+			local dir = flatUnit(hrp.CFrame.LookVector)
+			if S.lmbAutoAim and act == "Shoot" then
+				local aimPt = getAimPoint()
+				if aimPt then
+					dir = flatUnit(aimPt - ball.Position, dir)
+					hrp.CFrame = CFrame.lookAt(hrp.Position, hrp.Position + dir)
+				end
+			end
+			local useCF = (S.lmbAutoAim and act == "Shoot") and CFrame.lookAt(hrp.Position, hrp.Position + dir) or hrp.CFrame
+			local moveVec = (S.lmbAutoAim and act == "Shoot") and dir or (hum and hum.MoveDirection or Vector3.zero)
+			local pwr = S.powerLock and getEffectivePower(act, ball) or livePwr
+			local payload = buildPayload(ball, act, pwr, useCF, dir, moveVec)
+			local touch = getTouchRemote()
+			if not touch then return end
+			local kickEv = touch:FindFirstChild("Kick")
+			if isRemoteEventLike(kickEv) then
+				pcall(function() kickEv:FireServer(payload) end)
+			end
+			task.spawn(function()
+				local ok, res = pcall(function() return touch:InvokeServer(payload) end)
+				if ok and res == true then
+					confirmed = true
+					if gameTouchMod and type(gameTouchMod.Confirm) == "function" then
+						pcall(gameTouchMod.Confirm, true)
 					end
 				end
-				RunService.Heartbeat:Wait()
+			end)
+		end
+
+		-- Ilk denemeyi beklemeden aninda (0ms) gonder, onay gelene kadar her karede tekrarla
+		trySend()
+
+		task.spawn(function()
+			local start = os.clock()
+			while alive and myTok == reachToken and not confirmed and (os.clock() - start) < dur do
+				RunService.RenderStepped:Wait()
+				if not alive or myTok ~= reachToken or confirmed then break end
+				trySend()
 			end
 		end)
 	end
 
-	local cachedTouch, cachedKick, cachedAimPt = nil, nil, nil
+	local boundsHookSeen = false
 	local function refreshHookCache()
 		local t = getTouchRemote()
 		cachedTouch = t
@@ -3192,11 +3249,18 @@ hCredits:AddCredit("3qr311", "Scripter")
 			local inHook = false
 			local oldNC
 			oldNC = hookmetamethod(game, "__namecall", wrap(function(self, ...)
-				if alive and not inHook and (S.powerLock or S.lmbAutoAim or S.ground or S.curveR or S.curveL) then
-					local touch, kick = cachedTouch, cachedKick
-					if touch and (self == touch or self == kick) then
-						local method = getnamecallmethod()
-						if method == "InvokeServer" or method == "FireServer" then
+				if alive and not inHook then
+					local method = getnamecallmethod()
+					if S.reachOn and self == Workspace and method == "GetPartBoundsInBox" then
+						local cf, sz, params = ...
+						if typeof(sz) == "Vector3" and sz.X <= 8 and sz.Y <= 8 and sz.Z <= 8 then
+							boundsHookSeen = true
+							local d = clamp(S.reach, 1, 35) + 3.0
+							return oldNC(self, cf, Vector3.new(d, math.max(d, 30), d), params)
+						end
+					elseif (S.reachOn or S.powerLock or S.lmbAutoAim or S.ground or S.curveR or S.curveL) then
+						local touch, kick = cachedTouch, cachedKick
+						if touch and (self == touch or self == kick) and (method == "InvokeServer" or method == "FireServer") then
 							local t2 = select(1, ...)
 							if type(t2) == "table" and type(t2[2]) == "string" then
 								inHook = true
@@ -3272,7 +3336,7 @@ hCredits:AddCredit("3qr311", "Scripter")
 			origTouchDetect = gameTouchMod.Detect
 			gameTouchMod.Detect = function(duration, action, ...)
 				lastDetectAt = os.clock()
-				if alive and (S.reachOn or S.lmbAutoAim or S.powerLock) then
+				if alive and not boundsHookSeen and (S.reachOn or S.lmbAutoAim or S.powerLock) then
 					local livePwr = S.powerLock and getEffectivePower(action) or getLiveChargePower()
 					runReachWindow(duration, action, livePwr)
 				end
@@ -3311,10 +3375,9 @@ hCredits:AddCredit("3qr311", "Scripter")
 		end
 		local dir = flatUnit(rawDir, hrp.CFrame.LookVector)
 		if aimLocked then hrp.CFrame = CFrame.lookAt(hrp.Position, hrp.Position + dir) end
-		local dist = (ball.Position - hrp.Position).Magnitude
-		local leadPos = ball.Position + ball.AssemblyLinearVelocity * 0.035
-		local useCF = dist > 2.0 and CFrame.lookAt(leadPos - dir * 1.2, leadPos + dir) or hrp.CFrame
-		return firePayload(buildPayload(ball, action, power, useCF, dir))
+		local useCF = aimLocked and CFrame.lookAt(hrp.Position, hrp.Position + dir) or hrp.CFrame
+		touchBallWithLimbs(hrp, ball)
+		return firePayload(buildPayload(ball, action, power, useCF, dir), opts.onResult)
 	end
 
 	local function kickToGoal()
@@ -3601,9 +3664,8 @@ hCredits:AddCredit("3qr311", "Scripter")
 	local function updateRangeRings()
 		local ball = getBall()
 		local basePos = ball and ball.Position or nil
-		local halfY = ball and (ball.Size.Y * 0.5) or 1.2
 		local tNow = os.clock()
-		local function setRing(key, vis, diam, col, idx)
+		local function setSphere(key, vis, diam, col, idx)
 			local p = rangeRings[key]
 			if not vis or not basePos then
 				if p then p.Transparency = 1 end
@@ -3611,22 +3673,25 @@ hCredits:AddCredit("3qr311", "Scripter")
 			end
 			if not p or not p.Parent then
 				p = Instance.new("Part")
-				p.Name = "CaddeX_Ring_" .. key p.Shape = Enum.PartType.Cylinder p.Material = Enum.Material.Neon
+				p.Name = "CaddeX_Sphere_" .. key
+				p.Shape = Enum.PartType.Ball
+				p.Material = Enum.Material.SmoothPlastic
 				p.Anchored = true p.CanCollide = false p.CanQuery = false p.CanTouch = false p.CastShadow = false
 				p.Parent = Workspace
 				rangeRings[key] = p
 			end
-			local d = clamp(diam, 1, 35)
-			p.Size = Vector3.new(0.10, d, d)
-			p.CFrame = CFrame.new(basePos.X, basePos.Y - halfY - (idx * 0.04), basePos.Z) * CFrame.Angles(0, 0, math.rad(90))
-			p.Color = S.rainbowRings and Color3.fromHSV((tNow * 0.25 + idx * 0.14) % 1, 0.85, 1) or col
-			p.Transparency = 0.5
+			local d = math.min(clamp(diam, 1, 30), 29)
+			local c = S.rainbowRings and Color3.fromHSV((tNow * 0.25 + idx * 0.14) % 1, 0.85, 1) or col
+			p.Size = Vector3.new(d, d, d)
+			p.CFrame = CFrame.new(basePos)
+			p.Color = c
+			p.Transparency = 0.55
 		end
-		setRing("reach", S.reachVisual and S.reachOn, S.reach, S.ringColors.reach, 0)
-		setRing("shoot", S.reachVisual and S.autoShoot, S.autoShootRange, S.ringColors.shoot, 1)
-		setRing("dribble", S.reachVisual and S.autoDribble, S.autoDribbleRange, S.ringColors.dribble, 2)
-		setRing("tackle", S.reachVisual and S.autoTackle, S.autoTackleRange, S.ringColors.tackle, 3)
-		setRing("save", S.reachVisual and S.autoSave, S.autoSaveRange, S.ringColors.save, 4)
+		setSphere("shoot", S.reachVisual and S.autoShoot, S.autoShootRange, S.ringColors.shoot, 0)
+		setSphere("dribble", S.reachVisual and S.autoDribble, S.autoDribbleRange, S.ringColors.dribble, 1)
+		setSphere("tackle", S.reachVisual and S.autoTackle, S.autoTackleRange, S.ringColors.tackle, 2)
+		setSphere("save", S.reachVisual and S.autoSave, S.autoSaveRange, S.ringColors.save, 3)
+		if rangeRings.reach then rangeRings.reach.Transparency = 1 end
 	end
 
 	-- ============================================================
@@ -3789,18 +3854,11 @@ hCredits:AddCredit("3qr311", "Scripter")
 	kAutoSet:AddButton("Goalkeeper Save", function() kickBall("Save", 0.15) end)
 	kAutoSet:AddButton("Dive", function() kickBall("Dive", 0) end)
 	kAutoSet:AddButton("Trigger Skill", function() fireTouchChild("Skill", "Skill triggered") end)
-	kAutoSet:AddSlider("Auto Shoot Delay (s)", 0.15, 2.0, S.autoShootDelay, function(v) S.autoShootDelay = v end, 0.05)
-	kAutoSet:AddSlider("Dribble Delay (s)", 0.1, 1.5, S.autoDribbleDelay, function(v) S.autoDribbleDelay = v end, 0.05)
+	kAutoSet:AddSlider("Auto Shoot Delay (s)", 0, 2.0, S.autoShootDelay, function(v) S.autoShootDelay = v end, 0.05)
+	kAutoSet:AddSlider("Dribble Delay (s)", 0, 1.5, S.autoDribbleDelay, function(v) S.autoDribbleDelay = v end, 0.05)
 
-	-- 3. REACH TAB (hitbox icon — Manual Reach + All Auto Reaches + Colors & Rainbow)
+	-- 3. REACH TAB (hitbox icon — Auto Reach + Ring Visuals & Colors)
 	local ReachTab = Window:AddTab("Reach", "o")
-
-	local rManual = ReachTab:AddSection("Manual Reach")
-	toggleRefs.reachOn = rManual:AddToggle("Extended Reach (Hitbox)", S.reachOn, function(on)
-		S.reachOn = on
-		if on then hookGameModules() end
-	end)
-	rManual:AddSlider("Reach Range (studs)", 3, 35, S.reach, function(v) S.reach = v end, 1)
 
 	local rAuto = ReachTab:AddSection("Auto Reach")
 	toggleRefs.autoShoot = rAuto:AddToggle("Auto Shoot", S.autoShoot, function(on) S.autoShoot = on paintMobBtn("autoShoot") end)
@@ -3819,25 +3877,24 @@ hCredits:AddCredit("3qr311", "Scripter")
 	addKeyOrMobile(rAuto, "Auto Goalkeeper Key", "autoSave", "GK", 6, true, function() return S.autoSave end, function()
 		if toggleRefs.autoSave then toggleRefs.autoSave.Set(not S.autoSave) end
 	end)
-	rAuto:AddSlider("Auto Shoot Range (studs)", 4, 35, S.autoShootRange, function(v) S.autoShootRange = v end, 1)
-	rAuto:AddSlider("Dribble Range (studs)", 3, 35, S.autoDribbleRange, function(v) S.autoDribbleRange = v end, 1)
-	rAuto:AddSlider("Tackle Range (studs)", 3, 35, S.autoTackleRange, function(v) S.autoTackleRange = v end, 1)
-	rAuto:AddSlider("Goalkeeper Range (studs)", 6, 35, S.autoSaveRange, function(v) S.autoSaveRange = v end, 1)
+	rAuto:AddSlider("Auto Shoot Range (studs)", 4, 30, S.autoShootRange, function(v) S.autoShootRange = v end, 1)
+	rAuto:AddSlider("Dribble Range (studs)", 3, 30, S.autoDribbleRange, function(v) S.autoDribbleRange = v end, 1)
+	rAuto:AddSlider("Tackle Range (studs)", 3, 30, S.autoTackleRange, function(v) S.autoTackleRange = v end, 1)
+	rAuto:AddSlider("Goalkeeper Range (studs)", 6, 30, S.autoSaveRange, function(v) S.autoSaveRange = v end, 1)
 
-	local rVis = ReachTab:AddSection("Reach Ring Visuals & Colors")
-	rVis:AddToggle("Show Reach Rings (0.5)", S.reachVisual, function(on) S.reachVisual = on end)
-	rVis:AddToggle("Rainbow Reach Rings", S.rainbowRings, function(on) S.rainbowRings = on end)
+	local rVis = ReachTab:AddSection("Reach Sphere Visuals & Colors")
+	rVis:AddToggle("Show Reach Spheres", S.reachVisual, function(on) S.reachVisual = on end)
+	rVis:AddToggle("Rainbow Reach Spheres", S.rainbowRings, function(on) S.rainbowRings = on end)
 	local function addRingColor(title, key)
 		rVis:AddColorPicker(title, S.ringColors[key], function(c)
 			if S.rainbowRings then return end
 			S.ringColors[key] = c
 		end)
 	end
-	addRingColor("Reach Ring Color", "reach")
-	addRingColor("Auto Shoot Ring Color", "shoot")
-	addRingColor("Auto Dribble Ring Color", "dribble")
-	addRingColor("Auto Tackle Ring Color", "tackle")
-	addRingColor("Auto Goalkeeper Ring Color", "save")
+	addRingColor("Auto Shoot Sphere Color", "shoot")
+	addRingColor("Auto Dribble Sphere Color", "dribble")
+	addRingColor("Auto Tackle Sphere Color", "tackle")
+	addRingColor("Auto Goalkeeper Sphere Color", "save")
 
 	-- 4. MOVEMENT TAB (movement icon — Jump, Auto Chase & Utility)
 	local MoveTab = Window:AddTab("Movement", "o")
@@ -3945,51 +4002,74 @@ hCredits:AddCredit("3qr311", "Scripter")
 	pcall(function() RunService:UnbindFromRenderStep("CaddeX_PowerBar") end)
 	pcall(function() RunService:BindToRenderStep("CaddeX_PowerBar", Enum.RenderPriority.Last.Value, applyChargeBarPower) end)
 
-	task.spawn(function()
-		local lastShot, lastDrib, lastSave, lastTackle = 0, 0, 0, 0
-		while alive do
-			task.wait(0.08)
-			if not alive then break end
-			if canAct() then
-				local ball, hrp = getBall(), getHRP()
-				if ball and hrp and not ball.Anchored then
-					local now = os.clock()
-					if S.autoShoot and inRange(hrp.Position, ball.Position, S.autoShootRange) and ball.AssemblyLinearVelocity.Magnitude < 95 and (now - lastShot) >= S.autoShootDelay then
-						lastShot = now
-						kickBall("Shoot", getEffectivePower("Shoot", ball), { ball = ball })
-					elseif S.autoDribble and inRange(hrp.Position, ball.Position, S.autoDribbleRange) and (now - lastDrib) >= S.autoDribbleDelay then
-						lastDrib = now
-						local hum = getHum()
-						kickBall("Dribble", 0.12, { ball = ball, dir = flatUnit(hum and hum.MoveDirection, hrp.CFrame.LookVector), autoAim = false })
-					elseif S.autoTackle and inRange(hrp.Position, ball.Position, S.autoTackleRange) and (now - lastTackle) >= 0.35 and isOpponentHoldingBall(ball) then
-						lastTackle = now
-						kickBall("Tackle", 0, { ball = ball, dir = flatUnit(ball.Position - hrp.Position, hrp.CFrame.LookVector), autoAim = false })
-					end
-					if S.autoSave and (now - lastSave) >= 0.45 then
-						local ownSide = getAttackSide() == "Home" and "Away" or "Home"
-						local netCF = getBox(getGoalTargetObj(ownSide))
-						if netCF then
-							local netDist = (ball.Position - netCF.Position).Magnitude
-							local toward = netCF.Position - ball.Position
-							local spd = ball.AssemblyLinearVelocity.Magnitude
-							if inRange(hrp.Position, ball.Position, S.autoSaveRange) and netDist <= S.autoSaveRange and spd > 2 and toward.Magnitude > 0.1 and ball.AssemblyLinearVelocity.Unit:Dot(toward.Unit) > 0.3 then
-								lastSave = now
-								kickBall("Save", 0.15, { ball = ball, dir = -toward, autoAim = false })
-							end
+	local lastShot, lastDrib, lastSave, lastTackle, lastSkillCheck = 0, 0, 0, 0, 0
+	local lastTryShot, lastTryDrib, lastTryTackle, lastTrySave = 0, 0, 0, 0
+	track(RunService.RenderStepped:Connect(function()
+		if not alive or not canAct() then return end
+		local now = os.clock()
+		if S.autoShoot or S.autoDribble or S.autoTackle or S.autoSave then
+			local ball, hrp = getBall(), getHRP()
+			if ball and hrp and not ball.Anchored then
+				if S.autoShoot and inRange(hrp, ball, S.autoShootRange) and ball.AssemblyLinearVelocity.Magnitude < 95 and (now - lastShot) >= S.autoShootDelay then
+					kickBall("Shoot", getEffectivePower("Shoot", ball), {
+						ball = ball,
+						ignoreCooldown = true,
+						onResult = function(ok) if ok then lastShot = os.clock() end end,
+					})
+				elseif S.autoDribble and inRange(hrp, ball, S.autoDribbleRange) and (now - lastDrib) >= S.autoDribbleDelay then
+					local hum = getHum()
+					kickBall("Dribble", 0.12, {
+						ball = ball,
+						dir = flatUnit(hum and hum.MoveDirection, hrp.CFrame.LookVector),
+						autoAim = false,
+						ignoreCooldown = true,
+						onResult = function(ok) if ok then lastDrib = os.clock() end end,
+					})
+				elseif S.autoTackle and inRange(hrp, ball, S.autoTackleRange) and isOpponentHoldingBall(ball) then
+					kickBall("Tackle", 0, {
+						ball = ball,
+						dir = flatUnit(ball.Position - hrp.Position, hrp.CFrame.LookVector),
+						autoAim = false,
+						ignoreCooldown = true,
+						onResult = function(ok) if ok then lastTackle = os.clock() end end,
+					})
+				end
+				if S.autoSave then
+					local ownSide = getAttackSide() == "Home" and "Away" or "Home"
+					local netCF = getBox(getGoalTargetObj(ownSide))
+					if netCF then
+						local netDist = (ball.Position - netCF.Position).Magnitude
+						local toward = netCF.Position - ball.Position
+						local spd = ball.AssemblyLinearVelocity.Magnitude
+						if inRange(hrp, ball, S.autoSaveRange) and netDist <= S.autoSaveRange and spd > 2 and toward.Magnitude > 0.1 and ball.AssemblyLinearVelocity.Unit:Dot(toward.Unit) > 0.3 then
+							kickBall("Save", 0.15, {
+								ball = ball,
+								dir = -toward,
+								autoAim = false,
+								ignoreCooldown = true,
+								onResult = function(ok) if ok then lastSave = os.clock() end end,
+							})
 						end
 					end
 				end
-				checkAutoSkill()
 			end
 		end
-	end)
+		if S.autoSkill and (now - lastSkillCheck) >= 0.12 then
+			lastSkillCheck = now
+			checkAutoSkill()
+		end
+	end))
 
 	local function onManualKickRelease()
+		if boundsHookSeen then return end
 		if not (S.reachOn or S.lmbAutoAim or S.powerLock) or not canAct() then return end
 		local capturedPower = S.powerLock and getEffectivePower("Shoot") or getLiveChargePower()
+		if not gameTouchMod then
+			runReachWindow(0.55, nil, capturedPower)
+			return
+		end
 		task.defer(function()
 			if not alive then return end
-			-- gameTouchMod.Detect zaten tetiklendiyse cift gonderme yapma
 			if (os.clock() - lastDetectAt) < 0.08 then return end
 			runReachWindow(0.55, nil, capturedPower)
 		end)
@@ -4016,6 +4096,10 @@ hCredits:AddCredit("3qr311", "Scripter")
 			end))
 		end
 	end)
+
+	track(RunService.RenderStepped:Connect(function()
+		updateRangeRings()
+	end))
 
 	local visAcc = 0
 	local lastMobJump = 0
@@ -4063,10 +4147,12 @@ hCredits:AddCredit("3qr311", "Scripter")
 			cam.FieldOfView = S.fov
 		end
 
-		updateRangeRings()
 		visAcc = visAcc + dt
 		if visAcc >= 0.10 then
 			visAcc = 0
+			if not gameTouchMod and getChar() then
+				task.spawn(hookGameModules)
+			end
 			refreshHookCache()
 			updateBallEsp()
 			updatePlayerEsp()
