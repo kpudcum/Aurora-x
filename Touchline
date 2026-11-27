@@ -2650,7 +2650,7 @@ hCredits:AddCredit("3qr311", "Scripter")
 
 	local S = {
 		power = 1.0,
-		powerLock = true,
+		powerLock = false,
 		smartPower = true,
 		lmbAutoAim = false,
 		reachOn = false,
@@ -3062,48 +3062,76 @@ hCredits:AddCredit("3qr311", "Scripter")
 		return true
 	end
 
+	local cachedTouch, cachedKick, cachedAimPt = nil, nil, nil
+	local function refreshHookCache()
+		local t = getTouchRemote()
+		cachedTouch = t
+		cachedKick = t and t:FindFirstChild("Kick") or nil
+		if S.lmbAutoAim or S.smartPower then
+			cachedAimPt = getAimPoint()
+		end
+	end
+
 	local function hookNamecall()
 		if namecallHooked then return true end
 		if type(hookmetamethod) ~= "function" or type(getnamecallmethod) ~= "function" then return false end
 		local ok = pcall(function()
+			local wrap = type(newcclosure) == "function" and newcclosure or function(f) return f end
+			local inHook = false
 			local oldNC
-			oldNC = hookmetamethod(game, "__namecall", function(self, ...)
-				if alive then
-					local method = getnamecallmethod()
-					if (method == "InvokeServer" or method == "FireServer") and typeof(self) == "Instance" then
-						local touch = getTouchRemote()
-						if touch and (self == touch or (self.Parent == touch and self.Name == "Kick")) then
-							local args = { ... }
-							local t2 = args[1]
-							if type(t2) == "table" and typeof(t2[1]) == "Instance" and type(t2[2]) == "string" then
-								if S.powerLock then t2[3] = getEffectivePower(t2[2], t2[1]) end
-								if type(t2[4]) == "table" then
-									if S.ground then t2[4].Ground = true end
-									if S.curveR then t2[4].Right = true end
-									if S.curveL then t2[4].Left = true end
-								end
-								if S.lmbAutoAim and t2[2] == "Shoot" then
-									local aimPt, ball, hrp = getAimPoint(), t2[1], getHRP()
-									if aimPt and ball and ball:IsA("BasePart") and hrp then
-										local dir = flatUnit(aimPt - ball.Position, hrp.CFrame.LookVector)
-										local aimedCF = CFrame.lookAt(hrp.Position, hrp.Position + dir)
-										t2[5] = aimedCF
-										t2[6] = aimedCF:VectorToObjectSpace(dir)
+			oldNC = hookmetamethod(game, "__namecall", wrap(function(self, ...)
+				if alive and not inHook and (S.powerLock or S.lmbAutoAim or S.ground or S.curveR or S.curveL) then
+					local touch, kick = cachedTouch, cachedKick
+					if touch and (self == touch or self == kick) then
+						local method = getnamecallmethod()
+						if method == "InvokeServer" or method == "FireServer" then
+							local t2 = select(1, ...)
+							if type(t2) == "table" and type(t2[2]) == "string" then
+								inHook = true
+								pcall(function()
+									if S.powerLock then
+										local p = clamp(S.power or 1, 0.05, 1)
+										if S.smartPower and t2[2] == "Shoot" and cachedAimPt and typeof(t2[1]) == "Instance" then
+											local bp = t2[1].Position
+											local gd = (Vector3.new(bp.X, 0, bp.Z) - Vector3.new(cachedAimPt.X, 0, cachedAimPt.Z)).Magnitude
+											if gd <= 14 then p = math.min(p, 0.45)
+											elseif gd <= 28 then p = math.min(p, 0.65)
+											elseif gd <= 45 then p = math.min(p, 0.85) end
+										end
+										t2[3] = math.floor(p * 100 + 0.0001) / 100
 									end
-								end
+									if type(t2[4]) == "table" then
+										if S.ground then t2[4].Ground = true end
+										if S.curveR then t2[4].Right = true end
+										if S.curveL then t2[4].Left = true end
+									end
+									if S.lmbAutoAim and t2[2] == "Shoot" and cachedAimPt and typeof(t2[1]) == "Instance" and typeof(t2[5]) == "CFrame" then
+										local bp = t2[1].Position
+										local hp = t2[5].Position
+										local flat = Vector3.new(cachedAimPt.X - bp.X, 0, cachedAimPt.Z - bp.Z)
+										if flat.Magnitude >= 0.05 then
+											local dir = flat.Unit
+											local aimedCF = CFrame.lookAt(hp, hp + dir)
+											t2[5] = aimedCF
+											t2[6] = aimedCF:VectorToObjectSpace(dir)
+										end
+									end
+								end)
+								inHook = false
 								return oldNC(self, t2)
 							end
 						end
 					end
 				end
 				return oldNC(self, ...)
-			end)
+			end))
 			namecallHooked = true
 		end)
 		return ok and namecallHooked
 	end
 
 	local function hookGameModules()
+		refreshHookCache()
 		hookNamecall()
 		-- Lobideyken karakter olmadigi icin Touch/Charge modulleri CharacterAdded:Wait() ile scripti dondurur!
 		-- Bu yuzden karakter spawn olmadan require() cagirma.
@@ -3125,20 +3153,6 @@ hCredits:AddCredit("3qr311", "Scripter")
 				cmod.Get = function(...)
 					if alive and S.powerLock then return getEffectivePower("Shoot") end
 					return origChargeGet(...)
-				end
-				if type(cmod.Charge) == "function" and not origChargeCharge then
-					origChargeCharge = cmod.Charge
-					cmod.Charge = function(...)
-						if alive and S.powerLock then applyChargeBarPower() return end
-						return origChargeCharge(...)
-					end
-				end
-				if type(cmod.Reset) == "function" and not origChargeReset then
-					origChargeReset = cmod.Reset
-					cmod.Reset = function(...)
-						if alive and S.powerLock then applyChargeBarPower() return end
-						return origChargeReset(...)
-					end
 				end
 			end
 		end
@@ -3975,6 +3989,7 @@ hCredits:AddCredit("3qr311", "Scripter")
 		visAcc = visAcc + dt
 		if visAcc >= 0.10 then
 			visAcc = 0
+			refreshHookCache()
 			updateBallEsp()
 			updatePlayerEsp()
 			updateTrajectory()
@@ -4030,8 +4045,9 @@ hCredits:AddCredit("3qr311", "Scripter")
 
 	-- Baslatma & Temizlik (Lobide donmamasi icin asenkron)
 	task.spawn(function()
+		refreshHookCache()
 		hookNamecall()
-		applyInstantChargeOption(S.powerLock)
+		if S.powerLock then applyInstantChargeOption(true) end
 		if getChar() then
 			hookGameModules()
 		end
