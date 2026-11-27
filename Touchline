@@ -2699,7 +2699,6 @@ hCredits:AddCredit("3qr311", "Scripter")
 		fpsBoost = false,
 		crosshair = false,
 		fov = 85,
-		fovOn = false,
 		lastKick = 0,
 	}
 
@@ -3092,7 +3091,7 @@ hCredits:AddCredit("3qr311", "Scripter")
 										t2[6] = aimedCF:VectorToObjectSpace(dir)
 									end
 								end
-								return oldNC(self, t2, select(2, ...))
+								return oldNC(self, t2)
 							end
 						end
 					end
@@ -3524,62 +3523,8 @@ hCredits:AddCredit("3qr311", "Scripter")
 		setRing("save", S.reachVisual and S.autoSave, S.autoSaveRange, COL.warn, 3)
 	end
 
-
-	local mobileKick = nil
-	-- Mobile action buttons (touch): draggable on-screen bar
-	local barGui = Instance.new("ScreenGui")
-	barGui.Name = "CaddeX_Buttons" barGui.ResetOnSpawn = false barGui.DisplayOrder = 9997
-	barGui.Enabled = AIM_MOBILE
-	barGui.Parent = LP:WaitForChild("PlayerGui")
-	do
-		local list = {
-			{ "KICK", function() if mobileKick then mobileKick(true) end end },
-			{ "GOAL", kickToGoal },
-			{ "PASS", passToTeammate },
-			{ "TACKLE", function() kickBall("Tackle", 0) end },
-			{ "SAVE", function() kickBall("Save", 0.15) end },
-			{ "DIVE", function() kickBall("Dive", 0) end },
-			{ "SKILL", function() fireTouchChild("Skill", nil) end },
-		}
-		local frame = Instance.new("Frame")
-		frame.BackgroundTransparency = 1 frame.BorderSizePixel = 0
-		frame.Size = UDim2.fromOffset(64, 22 + #list * 40)
-		frame.Position = UDim2.new(1, -72, 0.25, 0)
-		frame.Parent = barGui
-		local grip = Instance.new("TextButton")
-		grip.Text = "::" grip.Font = Enum.Font.GothamBold grip.TextSize = 14 grip.TextColor3 = Color3.new(1, 1, 1)
-		grip.BackgroundColor3 = Color3.fromRGB(30, 30, 40) grip.BackgroundTransparency = 0.25 grip.BorderSizePixel = 0
-		grip.AutoButtonColor = false grip.Size = UDim2.fromOffset(64, 18) grip.Parent = frame
-		Instance.new("UICorner", grip).CornerRadius = UDim.new(0, 6)
-		for i, it in ipairs(list) do
-			local b = Instance.new("TextButton")
-			b.Text = it[1] b.Font = Enum.Font.GothamBold b.TextSize = 12 b.TextColor3 = Color3.new(1, 1, 1)
-			b.BackgroundColor3 = COL.accent b.BackgroundTransparency = 0.25 b.BorderSizePixel = 0
-			b.AutoButtonColor = true b.Size = UDim2.fromOffset(64, 36) b.Position = UDim2.fromOffset(0, 22 + (i - 1) * 40)
-			b.Parent = frame
-			Instance.new("UICorner", b).CornerRadius = UDim.new(0, 8)
-			b.Activated:Connect(function() task.spawn(it[2]) end)
-		end
-		local drag, startIn, startPos = nil, nil, nil
-		grip.InputBegan:Connect(function(i)
-			if i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseButton1 then
-				drag, startIn, startPos = i, i.Position, frame.Position
-			end
-		end)
-		track(UserInputService.InputChanged:Connect(function(i)
-			if drag and (i == drag or i.UserInputType == Enum.UserInputType.MouseMovement) and drag.UserInputState ~= Enum.UserInputState.End then
-				local d = i.Position - startIn
-				local vp = Workspace.CurrentCamera and Workspace.CurrentCamera.ViewportSize or Vector2.new(1280, 720)
-				frame.Position = UDim2.fromOffset(
-					clamp(startPos.X.Offset + startPos.X.Scale * vp.X + d.X, 0, vp.X - 64),
-					clamp(startPos.Y.Offset + startPos.Y.Scale * vp.Y + d.Y, 0, vp.Y - frame.AbsoluteSize.Y))
-			end
-		end))
-		track(UserInputService.InputEnded:Connect(function(i) if i == drag then drag = nil end end))
-	end
-
 	-- ============================================================
-	-- AURORA X TABS (CADDE FEATURES — MATCHING AURAX_MAIN LAYOUT)
+	-- AURORA X TABS (CADDE FEATURES — PC KEYBINDS + MOBILE FLOAT BUTTONS)
 	-- ============================================================
 	local toggleRefs = {}
 	local keySkipUntil = 0
@@ -3591,16 +3536,110 @@ hCredits:AddCredit("3qr311", "Scripter")
 		autoTackle = nil,
 		autoSave = { kind = "key", value = Enum.KeyCode.U },
 		autoChase = nil,
-		resetChar = nil,
+		resetChar = { kind = "key", value = Enum.KeyCode.R },
 		ballEsp = { kind = "key", value = Enum.KeyCode.V },
 		playerEsp = { kind = "key", value = Enum.KeyCode.B },
 	}
-	local function addKey(sec, labelText, keyName)
-		if AIM_MOBILE then return end
-		sec:AddKeybind(labelText, keyBinds[keyName], function(b)
-			keyBinds[keyName] = b
-			keySkipUntil = os.clock() + 0.5
+
+	-- Aurora X style draggable round floating mobile buttons
+	local mobileFloatBtns = {}
+	local mobileBtnSize = 48
+	local function paintMobBtn(id)
+		local rec = mobileFloatBtns[id]
+		if rec and rec.paint then pcall(rec.paint) end
+	end
+	local function createMobileFloatBtn(id, shortText, slotIdx, isToggle, getter, onTap)
+		local vp = Workspace.CurrentCamera and Workspace.CurrentCamera.ViewportSize or Vector2.new(900, 420)
+		local col = math.floor((slotIdx - 1) / 4)
+		local row = (slotIdx - 1) % 4
+		local defaultPos = UDim2.fromOffset(
+			math.clamp(vp.X - 52 - col * 58, 30, math.max(30, vp.X - 30)),
+			math.clamp(82 + row * 58, 40, math.max(80, vp.Y - 40))
+		)
+		local b = new("TextButton", {
+			Name = "AuroraCadde_" .. id,
+			Text = "",
+			AutoButtonColor = false,
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Size = UDim2.fromOffset(mobileBtnSize, mobileBtnSize),
+			Position = defaultPos,
+			BackgroundColor3 = T.card,
+			BackgroundTransparency = 0.12,
+			BorderSizePixel = 0,
+			Visible = false,
+			ZIndex = 44,
+		}, { corner(mobileBtnSize / 2) })
+		local bs = stroke(T.line, 2, 0.15)
+		bs.Parent = b
+		local lbl = label({
+			Text = shortText,
+			Font = Enum.Font.GothamBlack,
+			TextSize = 11,
+			TextColor3 = T.text,
+			TextXAlignment = Enum.TextXAlignment.Center,
+			Size = UDim2.fromScale(1, 1),
+			ZIndex = 45,
+		})
+		lbl.Parent = b
+		b.Parent = gui
+
+		local function paintMob()
+			local on = isToggle and getter and getter() == true
+			bs.Color = on and accent or T.line
+			lbl.TextColor3 = on and accent or T.text
+		end
+		onAccent(function() paintMob() end)
+		onThemeChange(function(k, c)
+			if k == "card" then b.BackgroundColor3 = c
+			elseif k == "line" or k == "text" then paintMob() end
 		end)
+
+		local activeInput, dragged, startIn, startPos = nil, false, nil, Vector2.zero
+		b.InputBegan:Connect(function(i)
+			if activeInput then return end
+			if i.UserInputType ~= Enum.UserInputType.MouseButton1 and i.UserInputType ~= Enum.UserInputType.Touch then return end
+			activeInput, dragged, startIn = i, false, i.Position
+			startPos = Vector2.new(b.Position.X.Offset, b.Position.Y.Offset)
+		end)
+		track(UserInputService.InputChanged:Connect(function(i)
+			if not activeInput or i ~= activeInput then return end
+			if i.UserInputType ~= Enum.UserInputType.MouseMovement and i.UserInputType ~= Enum.UserInputType.Touch then return end
+			local d = i.Position - startIn
+			if d.Magnitude > 10 then dragged = true end
+			if dragged then
+				local v = Workspace.CurrentCamera and Workspace.CurrentCamera.ViewportSize or Vector2.new(900, 420)
+				local nx = math.clamp(startPos.X + d.X, 26, math.max(26, v.X - 26))
+				local ny = math.clamp(startPos.Y + d.Y, 26, math.max(26, v.Y - 26))
+				b.Position = UDim2.fromOffset(nx, ny)
+			end
+		end))
+		track(UserInputService.InputEnded:Connect(function(i)
+			if not activeInput or i ~= activeInput then return end
+			activeInput = nil
+			if not dragged then
+				pcall(onTap)
+				paintMob()
+			end
+		end))
+
+		local rec = { btn = b, defaultPos = defaultPos, paint = paintMob }
+		mobileFloatBtns[id] = rec
+		return rec
+	end
+
+	local function addKeyOrMobile(sec, keyTitle, keyId, shortLabel, slotIdx, isToggle, getter, onTap)
+		if not AIM_MOBILE then
+			sec:AddKeybind(keyTitle, keyBinds[keyId], function(b)
+				keyBinds[keyId] = b
+				keySkipUntil = os.clock() + 0.5
+			end)
+		else
+			local rec = createMobileFloatBtn(keyId, shortLabel, slotIdx, isToggle, getter, onTap)
+			sec:AddToggle(keyTitle .. " (Button)", false, function(on)
+				rec.btn.Visible = on
+				rec.paint()
+			end)
+		end
 	end
 
 	-- 2. SHOOT TAB (aimbot icon)
@@ -3615,7 +3654,7 @@ hCredits:AddCredit("3qr311", "Scripter")
 	toggleRefs.smartPower = kPower:AddToggle("Smart Power (Scale Near Goal)", S.smartPower, function(on)
 		S.smartPower = on
 	end)
-	toggleRefs.lmbAutoAim = kPower:AddToggle("LMB Auto Aim", S.lmbAutoAim, function(on)
+	toggleRefs.lmbAutoAim = kPower:AddToggle("LMB / Touch Auto Aim", S.lmbAutoAim, function(on)
 		S.lmbAutoAim = on
 		if on then hookGameModules() end
 	end)
@@ -3634,8 +3673,8 @@ hCredits:AddCredit("3qr311", "Scripter")
 	kAim:AddToggle("Hub Auto Aim", S.autoAim, function(on) S.autoAim = on end)
 	kAim:AddButton("Shoot to Goal", kickToGoal)
 	kAim:AddButton("Pass to Teammate", passToTeammate)
-	addKey(kAim, "Shoot to Goal Key", "shootGoal")
-	addKey(kAim, "Pass Key", "passTeam")
+	addKeyOrMobile(kAim, "Shoot to Goal Key", "shootGoal", "SHOOT", 1, false, nil, kickToGoal)
+	addKeyOrMobile(kAim, "Pass Key", "passTeam", "PASS", 2, false, nil, passToTeammate)
 	kAim:AddDropdown("Target Goal", { "Auto", "Home", "Away" }, S.goalSide, function(v) S.goalSide = v end)
 	kAim:AddDropdown("Aim Corner", { "Center", "Left", "Right", "Random" }, S.aim, function(v) S.aim = v end)
 
@@ -3649,33 +3688,40 @@ hCredits:AddCredit("3qr311", "Scripter")
 	kQuick:AddButton("Goalkeeper Save", function() kickBall("Save", 0.15) end)
 	kQuick:AddButton("Dive", function() kickBall("Dive", 0) end)
 	kQuick:AddButton("Trigger Skill", function() fireTouchChild("Skill", "Skill triggered") end)
-	kQuick:AddToggle("On-Screen Buttons (Mobile)", AIM_MOBILE, function(on) barGui.Enabled = on end)
 
 	-- 3. AUTO TAB (hitbox icon)
 	local AutoTab = Window:AddTab("Auto", "o")
 
 	local aShoot = AutoTab:AddSection("Auto Shoot")
-	toggleRefs.autoShoot = aShoot:AddToggle("Auto Shoot", S.autoShoot, function(on) S.autoShoot = on end)
-	addKey(aShoot, "Auto Shoot Key", "autoShoot")
+	toggleRefs.autoShoot = aShoot:AddToggle("Auto Shoot", S.autoShoot, function(on) S.autoShoot = on paintMobBtn("autoShoot") end)
+	addKeyOrMobile(aShoot, "Auto Shoot Key", "autoShoot", "A.SHT", 3, true, function() return S.autoShoot end, function()
+		if toggleRefs.autoShoot then toggleRefs.autoShoot.Set(not S.autoShoot) end
+	end)
 	aShoot:AddSlider("Auto Shoot Range (studs)", 4, 35, S.autoShootRange, function(v) S.autoShootRange = v end, 1)
 	aShoot:AddSlider("Auto Shoot Delay (s)", 0.15, 2.0, S.autoShootDelay, function(v) S.autoShootDelay = v end, 0.05)
 
 	local aDrib = AutoTab:AddSection("Auto Dribble")
-	toggleRefs.autoDribble = aDrib:AddToggle("Auto Dribble", S.autoDribble, function(on) S.autoDribble = on end)
-	addKey(aDrib, "Auto Dribble Key", "autoDribble")
+	toggleRefs.autoDribble = aDrib:AddToggle("Auto Dribble", S.autoDribble, function(on) S.autoDribble = on paintMobBtn("autoDribble") end)
+	addKeyOrMobile(aDrib, "Auto Dribble Key", "autoDribble", "DRIB", 4, true, function() return S.autoDribble end, function()
+		if toggleRefs.autoDribble then toggleRefs.autoDribble.Set(not S.autoDribble) end
+	end)
 	aDrib:AddSlider("Dribble Range (studs)", 3, 35, S.autoDribbleRange, function(v) S.autoDribbleRange = v end, 1)
 	aDrib:AddSlider("Dribble Delay (s)", 0.1, 1.5, S.autoDribbleDelay, function(v) S.autoDribbleDelay = v end, 0.05)
 
 	local aTackle = AutoTab:AddSection("Auto Tackle & Skill")
-	toggleRefs.autoTackle = aTackle:AddToggle("Auto Tackle (Opponent Only)", S.autoTackle, function(on) S.autoTackle = on end)
+	toggleRefs.autoTackle = aTackle:AddToggle("Auto Tackle (Opponent Only)", S.autoTackle, function(on) S.autoTackle = on paintMobBtn("autoTackle") end)
 	aTackle:AddToggle("No Tackle Slowdown & CD", S.noTackleSlow, function(on) S.noTackleSlow = on end)
 	aTackle:AddToggle("Auto Skill", S.autoSkill, function(on) S.autoSkill = on end)
-	addKey(aTackle, "Auto Tackle Key", "autoTackle")
+	addKeyOrMobile(aTackle, "Auto Tackle Key", "autoTackle", "TCKL", 5, true, function() return S.autoTackle end, function()
+		if toggleRefs.autoTackle then toggleRefs.autoTackle.Set(not S.autoTackle) end
+	end)
 	aTackle:AddSlider("Tackle Range (studs)", 3, 35, S.autoTackleRange, function(v) S.autoTackleRange = v end, 1)
 
 	local aGk = AutoTab:AddSection("Auto Goalkeeper")
-	toggleRefs.autoSave = aGk:AddToggle("Auto Goalkeeper", S.autoSave, function(on) S.autoSave = on end)
-	addKey(aGk, "Auto Goalkeeper Key", "autoSave")
+	toggleRefs.autoSave = aGk:AddToggle("Auto Goalkeeper", S.autoSave, function(on) S.autoSave = on paintMobBtn("autoSave") end)
+	addKeyOrMobile(aGk, "Auto Goalkeeper Key", "autoSave", "GK", 6, true, function() return S.autoSave end, function()
+		if toggleRefs.autoSave then toggleRefs.autoSave.Set(not S.autoSave) end
+	end)
 	aGk:AddSlider("Goalkeeper Range (studs)", 6, 35, S.autoSaveRange, function(v) S.autoSaveRange = v end, 1)
 
 	-- 4. MOVEMENT TAB (movement icon — Jump & Auto Chase only)
@@ -3690,12 +3736,14 @@ hCredits:AddCredit("3qr311", "Scripter")
 	mJump:AddSlider("JumpHeight", 7, 80, S.jump, function(v) S.jump = v end, 1)
 
 	local mChase = MoveTab:AddSection("Auto Chase")
-	toggleRefs.autoChase = mChase:AddToggle("Auto Ball Chase (Ground CFrame)", S.autoChase, function(on) S.autoChase = on end)
+	toggleRefs.autoChase = mChase:AddToggle("Auto Ball Chase (Ground CFrame)", S.autoChase, function(on) S.autoChase = on paintMobBtn("autoChase") end)
 	mChase:AddToggle("Face Ball", S.faceBall, function(on) S.faceBall = on end)
-	addKey(mChase, "Auto Chase Key", "autoChase")
+	addKeyOrMobile(mChase, "Auto Chase Key", "autoChase", "CHASE", 7, true, function() return S.autoChase end, function()
+		if toggleRefs.autoChase then toggleRefs.autoChase.Set(not S.autoChase) end
+	end)
 	mChase:AddSlider("Chase Speed", 10, 45, S.chaseSpeed, function(v) S.chaseSpeed = v end, 1)
 
-	-- 5. PLAYER TAB (player icon — AuraX_main compatible Actions)
+	-- 5. PLAYER TAB (player icon — AuraX_main compatible Actions + Mobile Button Settings)
 	local PlayerTab = Window:AddTab("Player", "o")
 
 	local pAct = PlayerTab:AddSection("Actions")
@@ -3706,7 +3754,31 @@ hCredits:AddCredit("3qr311", "Scripter")
 	pAct:AddButton("Get Up (GettingUp)", function() local h = getHum() if h then h:ChangeState(Enum.HumanoidStateType.GettingUp) end end)
 	pAct:AddButton("Camera: Focus Ball", function() local cam, b = Workspace.CurrentCamera, getBall() if cam and b then cam.CameraSubject = b end end)
 	pAct:AddButton("Camera: Focus Character", function() local cam, h = Workspace.CurrentCamera, getHum() if cam and h then cam.CameraSubject = h end end)
-	addKey(pAct, "Reset Keybind", "resetChar")
+	addKeyOrMobile(pAct, "Reset Keybind", "resetChar", "RST", 8, false, nil, function()
+		local h = getHum()
+		if h then h.Health = 0 end
+	end)
+
+	if AIM_MOBILE then
+		local pMob = PlayerTab:AddSection("Mobile Floating Buttons")
+		pMob:AddButton("Reset Floating Button Positions", function()
+			for _, rec in pairs(mobileFloatBtns) do
+				if rec.btn and rec.btn.Parent then rec.btn.Position = rec.defaultPos end
+			end
+			Aurora:Notify("Mobile", "Floating button positions reset.", 2, "success")
+		end)
+		pMob:AddSlider("Floating Button Size", 36, 84, mobileBtnSize, function(v)
+			mobileBtnSize = v
+			for _, rec in pairs(mobileFloatBtns) do
+				if rec.btn and rec.btn.Parent then
+					rec.btn.Size = UDim2.fromOffset(v, v)
+					local c = rec.btn:FindFirstChildOfClass("UICorner")
+					if c then c.CornerRadius = UDim.new(0, v / 2) end
+				end
+			end
+		end, 2)
+		pMob:AddLabel("Tap any floating button to toggle/run. Drag to reposition anywhere on screen.")
+	end
 
 	-- 6. SERVER TAB (server icon — AuraX_main Utility: Anti AFK + Anti Ragdoll)
 	local ServerTab = Window:AddTab("Server", "o")
@@ -3720,15 +3792,19 @@ hCredits:AddCredit("3qr311", "Scripter")
 	local EspTab = Window:AddTab("ESP", "o")
 
 	local vEsp = EspTab:AddSection("Ball & Player ESP")
-	toggleRefs.ballEsp = vEsp:AddToggle("Ball ESP", S.ballEsp, function(on) S.ballEsp = on end)
-	toggleRefs.playerEsp = vEsp:AddToggle("Player ESP", S.playerEsp, function(on) S.playerEsp = on end)
+	toggleRefs.ballEsp = vEsp:AddToggle("Ball ESP", S.ballEsp, function(on) S.ballEsp = on paintMobBtn("ballEsp") end)
+	toggleRefs.playerEsp = vEsp:AddToggle("Player ESP", S.playerEsp, function(on) S.playerEsp = on paintMobBtn("playerEsp") end)
 	vEsp:AddToggle("Ball Trajectory Line", S.trajectory, function(on) S.trajectory = on end)
 	vEsp:AddToggle("Ball Landing Marker", S.landingMarker, function(on) S.landingMarker = on end)
 	vEsp:AddToggle("Goal Target Marker", S.goalMarker, function(on) S.goalMarker = on end)
 	vEsp:AddToggle("Ball Range Rings (0.5)", S.reachVisual, function(on) S.reachVisual = on end)
 	vEsp:AddToggle("Show Game Hitboxes (Debug)", S.nativeHitbox, function(on) S.nativeHitbox = on setLocalOption("Hitboxes", on) end)
-	addKey(vEsp, "Ball ESP Key", "ballEsp")
-	addKey(vEsp, "Player ESP Key", "playerEsp")
+	addKeyOrMobile(vEsp, "Ball ESP Key", "ballEsp", "B.ESP", 9, true, function() return S.ballEsp end, function()
+		if toggleRefs.ballEsp then toggleRefs.ballEsp.Set(not S.ballEsp) end
+	end)
+	addKeyOrMobile(vEsp, "Player ESP Key", "playerEsp", "P.ESP", 10, true, function() return S.playerEsp end, function()
+		if toggleRefs.playerEsp then toggleRefs.playerEsp.Set(not S.playerEsp) end
+	end)
 
 	local vWorld = EspTab:AddSection("Camera & World")
 	vWorld:AddToggle("Fullbright", S.fullbright, function(on) S.fullbright = on applyFullbright(on) end)
@@ -3737,7 +3813,6 @@ hCredits:AddCredit("3qr311", "Scripter")
 	vWorld:AddToggle("Crosshair", S.crosshair, function(on) S.crosshair = on crosshairGui.Enabled = on end)
 	vWorld:AddSlider("Camera FOV", 70, 120, S.fov, function(v)
 		S.fov = v
-		S.fovOn = true
 		local cam = Workspace.CurrentCamera
 		if cam and cam.CameraType == Enum.CameraType.Custom then cam.FieldOfView = v end
 	end, 1)
@@ -3816,33 +3891,52 @@ hCredits:AddCredit("3qr311", "Scripter")
 		end
 	end)
 
-	local function lmbKick(force)
-		if not force and not (S.reachOn or S.lmbAutoAim or S.powerLock) then return end
-		if not canAct() then return end
+	local function onManualKickRelease()
+		if not (S.reachOn or S.lmbAutoAim or S.powerLock) or not canAct() then return end
 		local ball, hrp = getBall(), getHRP()
 		if not ball or not hrp or ball.Anchored then return end
 		local dist = (ball.Position - hrp.Position).Magnitude
 		local maxR = S.reachOn and (S.reach * 0.5) or 5.5
 		if dist <= maxR then
 			local pwr = getEffectivePower("Shoot", ball)
-			kickBall((S.powerLock and pwr <= 0.3) and "Dribble" or "Shoot", pwr, { ball = ball, autoAim = S.lmbAutoAim or force == true })
+			kickBall((S.powerLock and pwr <= 0.3) and "Dribble" or "Shoot", pwr, { ball = ball, autoAim = S.lmbAutoAim })
 		end
 	end
-	if not AIM_MOBILE then
-		track(UserInputService.InputEnded:Connect(function(inp, gp)
-			if gp or inp.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
-			lmbKick()
-		end))
-	end
-	mobileKick = lmbKick
+
+	track(UserInputService.InputEnded:Connect(function(inp, gp)
+		if gp or inp.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+		onManualKickRelease()
+	end))
+
+	-- Mobile Charge butonu dinleyicisi (mobilde LMB yerine Mobile.Charge kullanilir)
+	task.spawn(function()
+		local pg = LP:WaitForChild("PlayerGui", 10)
+		local mainG = pg and pg:WaitForChild("Main", 10)
+		local gameG = mainG and mainG:WaitForChild("Game", 10)
+		local mobG = gameG and gameG:WaitForChild("Mobile", 10)
+		local chBtn = mobG and mobG:FindFirstChild("Charge")
+		if chBtn and alive then
+			track(chBtn.MouseLeave:Connect(onManualKickRelease))
+			track(chBtn.InputEnded:Connect(function(inp)
+				if inp.UserInputType == Enum.UserInputType.Touch then
+					onManualKickRelease()
+				end
+			end))
+		end
+	end)
 
 	local visAcc = 0
+	local lastMobJump = 0
 	track(RunService.Heartbeat:Connect(function(dt)
 		local hum, hrp = getHum(), getHRP()
 		if hum then
 			if S.noTackleSlow and hum.WalkSpeed < (S.defaultWalk or 22) then hum.WalkSpeed = S.defaultWalk or 22 end
 			if S.jumpOn then hum.UseJumpPower = false hum.JumpHeight = S.jump
 			elseif S.noTackleSlow and hum.JumpHeight < (S.defaultJump or 7) then hum.JumpHeight = S.defaultJump or 7 end
+			if AIM_MOBILE and S.infJump and hum.Jump and canAct() and (os.clock() - lastMobJump) >= 0.22 then
+				lastMobJump = os.clock()
+				hum:ChangeState(Enum.HumanoidStateType.Jumping)
+			end
 			if S.antiRagdoll then
 				local st = hum:GetState()
 				if st == Enum.HumanoidStateType.Ragdoll or st == Enum.HumanoidStateType.FallingDown or st == Enum.HumanoidStateType.Physics then
@@ -3873,7 +3967,7 @@ hCredits:AddCredit("3qr311", "Scripter")
 		end
 
 		local cam = Workspace.CurrentCamera
-		if S.fovOn and cam and cam.CameraType == Enum.CameraType.Custom and math.abs(cam.FieldOfView - S.fov) > 0.6 then
+		if cam and cam.CameraType == Enum.CameraType.Custom and math.abs(cam.FieldOfView - S.fov) > 0.6 then
 			cam.FieldOfView = S.fov
 		end
 
@@ -3958,7 +4052,7 @@ hCredits:AddCredit("3qr311", "Scripter")
 			for _, c in ipairs(caddeConns) do pcall(function() c:Disconnect() end) end
 			caddeConns = {}
 			pcall(applyFullbright, false)
-			if S.fpsBoost then pcall(applyFpsBoost, false) end
+			pcall(applyFpsBoost, false)
 			pcall(applyClearNets, false)
 			pcall(applyInstantChargeOption, false)
 			pcall(clearBallEsp)
@@ -3969,9 +4063,6 @@ hCredits:AddCredit("3qr311", "Scripter")
 			for _, rp in pairs(rangeRings) do pcall(function() rp:Destroy() end) end
 			rangeRings = {}
 			if crosshairGui then pcall(function() crosshairGui:Destroy() end) end
-			if barGui then pcall(function() barGui:Destroy() end) end
-			pcall(function() if S.nativeHitbox then setLocalOption("Hitboxes", false) end end)
-			pcall(function() local h = getHum() if h and S.jumpOn then h.UseJumpPower = S.defaultUseJumpPower h.JumpHeight = S.defaultJump end end)
 		end)
 	end
 end)()
@@ -4015,15 +4106,13 @@ do
 			enforcedClockTime, enforcedAmbient = nil, nil
 			Aim.Enabled = false
 			Hit.Enabled = false
-			if Aurora.FlyFlag then Aurora.FlyFlag.On = false end
-		end)
-		pcall(function()
+			Aurora.FlyFlag.On = false
 			if FovLock.Value then
 				FovLock.On = false
 				workspace.CurrentCamera.FieldOfView = Aurora.Orig.FOV
 			end
+			workspace.Gravity = Aurora.Orig.Gravity
 		end)
-		pcall(function() workspace.Gravity = Aurora.Orig.Gravity end)
 		-- gui yok edilince tum Destroying dinleyicileri calisir: fly/noclip/radar/crosshair/yagmur/gokyuzu/ESP/hitbox temizlenir
 		pcall(function() gui:Destroy() end)
 		pcall(function()
@@ -4110,13 +4199,13 @@ do
 		GoldBlack = { "Gold", "Black" }, NeonPurple = { "Magenta", "Purple" }, Forest = { "Emerald", "Forest" }, Sunset = { "Orange", "Sunset" },
 		Ice = { "Sky", "Slate" }, Royal = { "Indigo", "Midnight" }, Coffee = { "Amber", "Coffee" }, Snow = { "Blue", "Light" },
 	}
-	sPack:AddDropdown("Theme Pack (color + background)", { "Blood", "Ocean", "Sakura", "Matrix", "GoldBlack", "NeonPurple", "Forest", "Sunset", "Ice", "Royal", "Coffee", "Snow" }, "Select", function(o)
+	sPack:AddDropdown("Theme Pack (color + background)", { "Blood", "Ocean", "Sakura", "Matrix", "GoldBlack", "NeonPurple", "Forest", "Sunset", "Ice", "Royal", "Coffee", "Snow" }, "Sec", function(o)
 		local p = PACKS[o]
 		if not p then return end
 		Aurora:SetAccent(p[1], true)
 		applyBG(p[2])
 	end)
-	sPack:AddDropdown("Background Preset", BGORDER, "Select", function(o) applyBG(o) end)
+	sPack:AddDropdown("Background Preset", BGORDER, "Sec", function(o) applyBG(o) end)
 end
 
 local sThemeBg = Settings:AddSection("Theme Backgrounds", false)
