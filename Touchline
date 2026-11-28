@@ -2656,6 +2656,7 @@ hCredits:AddCredit("3qr311", "Scripter")
 		reachOn = false,
 		reach = 14,
 		farMode = "Spoof",
+		rapidClick = true,
 		goalSide = "Auto",
 		aim = "Center",
 		autoAim = false,
@@ -3898,6 +3899,7 @@ hCredits:AddCredit("3qr311", "Scripter")
 		if on then hookGameModules() end
 	end)
 	rManual:AddSlider("Reach Size (studs)", 3, 30, S.reach, function(v) S.reach = v end, 1)
+	rManual:AddToggle("Rapid Click Dribble (spam tap)", S.rapidClick, function(on) S.rapidClick = on end)
 	rManual:AddDropdown("Far Hit Mode", { "Spoof", "Snap" }, S.farMode, function(v) S.farMode = v end)
 
 	local rAuto = ReachTab:AddSection("Auto Reach")
@@ -4094,8 +4096,30 @@ hCredits:AddCredit("3qr311", "Scripter")
 		end)
 	end
 
+	-- Rapid click dribble: every quick tap sends its own dribble kick immediately, so the game's click cooldown
+	-- no longer slows you down while running with the ball.
+	local pressAt, lastRapid = 0, 0
+	local function rapidTap()
+		if not S.rapidClick or not alive then return end
+		if (os.clock() - pressAt) > 0.25 then return end -- long press = charged shot, leave it to the game
+		local now = os.clock()
+		if (now - lastRapid) < 0.045 then return end
+		if not canAct() then return end
+		local ball, hrp = getBall(), getHRP()
+		if not ball or not hrp or ball.Anchored then return end
+		local maxR = S.reachOn and (clamp(S.reach, 3, 30) * 0.5 + 0.5) or 6
+		if (ball.Position - hrp.Position).Magnitude > maxR then return end
+		lastRapid = now
+		local hum = getHum()
+		kickBall("Dribble", 0.12, { ball = ball, dir = flatUnit(hum and hum.MoveDirection, hrp.CFrame.LookVector), autoAim = false, ignoreCooldown = true })
+	end
+
+	track(UserInputService.InputBegan:Connect(function(inp)
+		if inp.UserInputType == Enum.UserInputType.MouseButton1 then pressAt = os.clock() end
+	end))
 	track(UserInputService.InputEnded:Connect(function(inp)
 		if inp.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+		rapidTap()
 		onManualKickRelease()
 	end))
 
@@ -4108,8 +4132,12 @@ hCredits:AddCredit("3qr311", "Scripter")
 		local chBtn = mobG and mobG:FindFirstChild("Charge")
 		if chBtn and alive then
 			track(chBtn.MouseLeave:Connect(onManualKickRelease))
+			track(chBtn.InputBegan:Connect(function(inp)
+				if inp.UserInputType == Enum.UserInputType.Touch then pressAt = os.clock() end
+			end))
 			track(chBtn.InputEnded:Connect(function(inp)
 				if inp.UserInputType == Enum.UserInputType.Touch then
+					rapidTap()
 					onManualKickRelease()
 				end
 			end))
