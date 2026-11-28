@@ -3153,7 +3153,7 @@ hCredits:AddCredit("3qr311", "Scripter")
 
 	local function inRange(hrp, ball, rangeStuds)
 		-- slider value = sphere diameter in studs; the hit triggers exactly when the ball is inside the sphere
-		return getClosestLimbDist(hrp, ball) <= clamp(rangeStuds, 1, 30) * 0.5 + 0.5
+		return (ball.Position - hrp.Position).Magnitude <= clamp(rangeStuds, 1, 30) * 0.5 + 0.5
 	end
 
 	-- Kick position for far balls: the character stays where it is, only the position sent with the kick is
@@ -3217,6 +3217,8 @@ hCredits:AddCredit("3qr311", "Scripter")
 			local dist = (ball.Position - hrp.Position).Magnitude
 			local hitOk = S.reachOn and inRange(hrp, ball, S.reach) or (dist <= 5.5)
 			if not hitOk then return end
+			-- close balls are handled by the game's own (enlarged) detection; we only add the far ones, instantly
+			if boundsHookSeen and dist <= 6 then return end
 
 			local hum = getHum()
 			local dir = flatUnit(hrp.CFrame.LookVector)
@@ -3367,7 +3369,7 @@ hCredits:AddCredit("3qr311", "Scripter")
 			origTouchDetect = gameTouchMod.Detect
 			gameTouchMod.Detect = function(duration, action, ...)
 				lastDetectAt = os.clock()
-				if alive and not boundsHookSeen and (S.reachOn or S.lmbAutoAim or S.powerLock) then
+				if alive and (S.reachOn or S.lmbAutoAim or S.powerLock) then
 					local livePwr = S.powerLock and getEffectivePower(action) or getLiveChargePower()
 					runReachWindow(duration, action, livePwr)
 				end
