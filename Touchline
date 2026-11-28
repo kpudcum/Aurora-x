@@ -2672,6 +2672,14 @@ hCredits:AddCredit("3qr311", "Scripter")
 		autoSaveRange = 22,
 		autoTackle = false,
 		autoTackleRange = 14,
+		manShoot = false,
+		manShootRange = 16,
+		manDribble = false,
+		manDribbleRange = 12,
+		manTackle = false,
+		manTackleRange = 14,
+		manSave = false,
+		manSaveRange = 22,
 		autoSkill = false,
 		noTackleSlow = false,
 
@@ -2817,10 +2825,16 @@ hCredits:AddCredit("3qr311", "Scripter")
 		return out
 	end
 
+	local cachedBall, cachedBallAt = nil, 0
 	local function getBall()
+		local now = os.clock()
+		if cachedBall and cachedBall.Parent and not cachedBall.Anchored and (now - cachedBallAt) < 0.20 then
+			return cachedBall
+		end
+		cachedBallAt = now
 		local balls = getBalls()
-		if #balls == 0 then return nil end
-		if #balls == 1 then return balls[1] end
+		if #balls == 0 then cachedBall = nil return nil end
+		if #balls == 1 then cachedBall = balls[1] return cachedBall end
 		local hrp = getHRP()
 		local bestFree, bestFreeD = nil, math.huge
 		local bestAny, bestAnyD = nil, math.huge
@@ -2831,7 +2845,8 @@ hCredits:AddCredit("3qr311", "Scripter")
 				if d < bestAnyD then bestAny, bestAnyD = b, d end
 			end
 		end
-		return bestFree or bestAny
+		cachedBall = bestFree or bestAny
+		return cachedBall
 	end
 
 	local function getBallOwner(ball)
@@ -3082,18 +3097,18 @@ hCredits:AddCredit("3qr311", "Scripter")
 	local function firePayload(payload, onResult)
 		local touch = cachedTouch or getTouchRemote()
 		if not touch then return false end
+		task.spawn(function()
+			local ok, res = pcall(function() return touch:InvokeServer(payload) end)
+			local confirmed = (ok and res == true)
+			if onResult then onResult(confirmed) end
+			if confirmed and gameTouchMod and type(gameTouchMod.Confirm) == "function" then
+				task.spawn(function() pcall(gameTouchMod.Confirm, true) end)
+			end
+		end)
 		local kickEv = cachedKick or touch:FindFirstChild("Kick")
 		if isRemoteEventLike(kickEv) then
 			pcall(function() kickEv:FireServer(payload) end)
 		end
-		task.spawn(function()
-			local ok, res = pcall(function() return touch:InvokeServer(payload) end)
-			local confirmed = (ok and res == true)
-			if confirmed and gameTouchMod and type(gameTouchMod.Confirm) == "function" then
-				pcall(gameTouchMod.Confirm, true)
-			end
-			if onResult then onResult(confirmed) end
-		end)
 		return true
 	end
 
@@ -3156,7 +3171,7 @@ hCredits:AddCredit("3qr311", "Scripter")
 
 	local function inRange(hrp, ball, rangeStuds)
 		local radius = clamp(rangeStuds, 1, 30) * 0.5
-		return getClosestLimbDist(hrp, ball) <= (radius + 1.0)
+		return getClosestLimbDist(hrp, ball) <= (radius + 1.5)
 	end
 
 	local reachToken = 0
@@ -3234,11 +3249,13 @@ hCredits:AddCredit("3qr311", "Scripter")
 	end
 
 	local boundsHookSeen = false
+	local triggerManualReach = nil
+	local lastPressDribAt = 0
 	local function refreshHookCache()
 		local t = getTouchRemote()
 		cachedTouch = t
 		cachedKick = t and t:FindFirstChild("Kick") or nil
-		if S.lmbAutoAim or S.smartPower or S.autoAim or S.autoShoot then
+		if S.lmbAutoAim or S.smartPower or S.autoAim or S.autoShoot or S.manShoot then
 			cachedAimPt = getAimPoint()
 		end
 	end
@@ -3332,13 +3349,26 @@ hCredits:AddCredit("3qr311", "Scripter")
 					if alive and S.powerLock then return getEffectivePower("Shoot") end
 					return origChargeGet(...)
 				end
+				if type(cmod.Charge) == "function" and not origChargeCharge then
+					origChargeCharge = cmod.Charge
+					cmod.Charge = function(...)
+						if alive and S.manDribble and not S.manShoot then
+							return
+						end
+						return origChargeCharge(...)
+					end
+				end
 			end
 		end
 		if gameTouchMod and type(gameTouchMod.Detect) == "function" and not origTouchDetect then
 			origTouchDetect = gameTouchMod.Detect
 			gameTouchMod.Detect = function(duration, action, ...)
 				lastDetectAt = os.clock()
-				if alive and not boundsHookSeen and (S.reachOn or S.lmbAutoAim or S.powerLock) then
+				if alive and (S.manShoot or S.manDribble or S.manTackle or S.manSave) and triggerManualReach then
+					if not (S.manDribble and not S.manShoot and (os.clock() - lastPressDribAt) < 0.35) then
+						triggerManualReach(action, getLiveChargePower())
+					end
+				elseif alive and not boundsHookSeen and (S.reachOn or S.lmbAutoAim or S.powerLock) then
 					local livePwr = S.powerLock and getEffectivePower(action) or getLiveChargePower()
 					runReachWindow(duration, action, livePwr)
 				end
@@ -3376,11 +3406,9 @@ hCredits:AddCredit("3qr311", "Scripter")
 			if aimPt then rawDir = aimPt - ball.Position aimLocked = true end
 		end
 		local dir = flatUnit(rawDir, hrp.CFrame.LookVector)
-		if aimLocked then hrp.CFrame = CFrame.lookAt(hrp.Position, hrp.Position + dir) end
+		if aimLocked and not opts.noSnap then hrp.CFrame = CFrame.lookAt(hrp.Position, hrp.Position + dir) end
 		local useCF = aimLocked and CFrame.lookAt(hrp.Position, hrp.Position + dir) or hrp.CFrame
-		local sent = firePayload(buildPayload(ball, action, power, useCF, dir), opts.onResult)
-		touchBallWithLimbs(hrp, ball)
-		return sent
+		return firePayload(buildPayload(ball, action, power, useCF, dir), opts.onResult)
 	end
 
 	local function kickToGoal()
@@ -3694,6 +3722,10 @@ hCredits:AddCredit("3qr311", "Scripter")
 		setSphere("dribble", S.reachVisual and S.autoDribble, S.autoDribbleRange, S.ringColors.dribble, 1)
 		setSphere("tackle", S.reachVisual and S.autoTackle, S.autoTackleRange, S.ringColors.tackle, 2)
 		setSphere("save", S.reachVisual and S.autoSave, S.autoSaveRange, S.ringColors.save, 3)
+		setSphere("mshoot", S.reachVisual and S.manShoot, S.manShootRange, S.ringColors.shoot, 4)
+		setSphere("mdribble", S.reachVisual and S.manDribble, S.manDribbleRange, S.ringColors.dribble, 5)
+		setSphere("mtackle", S.reachVisual and S.manTackle, S.manTackleRange, S.ringColors.tackle, 6)
+		setSphere("msave", S.reachVisual and S.manSave, S.manSaveRange, S.ringColors.save, 7)
 		if rangeRings.reach then rangeRings.reach.Transparency = 1 end
 	end
 
@@ -3709,6 +3741,10 @@ hCredits:AddCredit("3qr311", "Scripter")
 		autoDribble = nil,
 		autoTackle = nil,
 		autoSave = { kind = "key", value = Enum.KeyCode.U },
+		manShoot = nil,
+		manDribble = nil,
+		manTackle = nil,
+		manSave = nil,
 		autoChase = nil,
 		resetChar = { kind = "key", value = Enum.KeyCode.R },
 		ballEsp = { kind = "key", value = Enum.KeyCode.V },
@@ -3883,6 +3919,28 @@ hCredits:AddCredit("3qr311", "Scripter")
 	rAuto:AddSlider("Tackle Range (studs)", 3, 30, S.autoTackleRange, function(v) S.autoTackleRange = v end, 1)
 	rAuto:AddSlider("Goalkeeper Range (studs)", 6, 30, S.autoSaveRange, function(v) S.autoSaveRange = v end, 1)
 
+	local rMan = ReachTab:AddSection("Manual Reach")
+	toggleRefs.manShoot = rMan:AddToggle("Manual Shoot", S.manShoot, function(on) S.manShoot = on paintMobBtn("manShoot") if on then hookGameModules() end end)
+	toggleRefs.manDribble = rMan:AddToggle("Manual Dribble", S.manDribble, function(on) S.manDribble = on paintMobBtn("manDribble") if on then hookGameModules() end end)
+	toggleRefs.manTackle = rMan:AddToggle("Manual Tackle", S.manTackle, function(on) S.manTackle = on paintMobBtn("manTackle") if on then hookGameModules() end end)
+	toggleRefs.manSave = rMan:AddToggle("Manual Goalkeeper", S.manSave, function(on) S.manSave = on paintMobBtn("manSave") if on then hookGameModules() end end)
+	addKeyOrMobile(rMan, "Manual Shoot Key", "manShoot", "M.SHT", 10, true, function() return S.manShoot end, function()
+		if toggleRefs.manShoot then toggleRefs.manShoot.Set(not S.manShoot) end
+	end)
+	addKeyOrMobile(rMan, "Manual Dribble Key", "manDribble", "M.DRB", 11, true, function() return S.manDribble end, function()
+		if toggleRefs.manDribble then toggleRefs.manDribble.Set(not S.manDribble) end
+	end)
+	addKeyOrMobile(rMan, "Manual Tackle Key", "manTackle", "M.TCK", 12, true, function() return S.manTackle end, function()
+		if toggleRefs.manTackle then toggleRefs.manTackle.Set(not S.manTackle) end
+	end)
+	addKeyOrMobile(rMan, "Manual Goalkeeper Key", "manSave", "M.GK", 13, true, function() return S.manSave end, function()
+		if toggleRefs.manSave then toggleRefs.manSave.Set(not S.manSave) end
+	end)
+	rMan:AddSlider("Manual Shoot Range (studs)", 4, 30, S.manShootRange, function(v) S.manShootRange = v end, 1)
+	rMan:AddSlider("Manual Dribble Range (studs)", 3, 30, S.manDribbleRange, function(v) S.manDribbleRange = v end, 1)
+	rMan:AddSlider("Manual Tackle Range (studs)", 3, 30, S.manTackleRange, function(v) S.manTackleRange = v end, 1)
+	rMan:AddSlider("Manual Goalkeeper Range (studs)", 6, 30, S.manSaveRange, function(v) S.manSaveRange = v end, 1)
+
 	local rVis = ReachTab:AddSection("Reach Sphere Visuals & Colors")
 	rVis:AddToggle("Show Reach Spheres", S.reachVisual, function(on) S.reachVisual = on end)
 	rVis:AddToggle("Rainbow Reach Spheres", S.rainbowRings, function(on) S.rainbowRings = on end)
@@ -3892,10 +3950,10 @@ hCredits:AddCredit("3qr311", "Scripter")
 			S.ringColors[key] = c
 		end)
 	end
-	addRingColor("Auto Shoot Sphere Color", "shoot")
-	addRingColor("Auto Dribble Sphere Color", "dribble")
-	addRingColor("Auto Tackle Sphere Color", "tackle")
-	addRingColor("Auto Goalkeeper Sphere Color", "save")
+	addRingColor("Shoot Sphere Color", "shoot")
+	addRingColor("Dribble Sphere Color", "dribble")
+	addRingColor("Tackle Sphere Color", "tackle")
+	addRingColor("Goalkeeper Sphere Color", "save")
 
 	-- 4. MOVEMENT TAB (movement icon — Jump, Auto Chase & Utility)
 	local MoveTab = Window:AddTab("Movement", "o")
@@ -4003,57 +4061,154 @@ hCredits:AddCredit("3qr311", "Scripter")
 	pcall(function() RunService:UnbindFromRenderStep("CaddeX_PowerBar") end)
 	pcall(function() RunService:BindToRenderStep("CaddeX_PowerBar", Enum.RenderPriority.Last.Value, applyChargeBarPower) end)
 
+	local function getAutoShootPower(ball)
+		local maxP = clamp(S.power or 1, 0.05, 1)
+		local b = ball or getBall()
+		local aimPt = cachedAimPt or getAimPoint()
+		if b and aimPt then
+			local dx = b.Position.X - aimPt.X
+			local dz = b.Position.Z - aimPt.Z
+			local goalDist = math.sqrt(dx * dx + dz * dz)
+			local scaled = clamp(0.32 + (goalDist / 72), 0.35, maxP)
+			return math.floor(scaled * 100 + 0.0001) / 100
+		end
+		return math.floor(maxP * 100 + 0.0001) / 100
+	end
+
+	local autoState = {
+		shoot = { busy = 0, nextAt = 0 },
+		dribble = { busy = 0, nextAt = 0 },
+		tackle = { busy = 0, nextAt = 0 },
+		save = { busy = 0, nextAt = 0 },
+	}
+	local function canSendAuto(st, now)
+		return now >= st.nextAt and (st.busy == 0 or (now - st.busy) > 0.25)
+	end
+	local function markAutoDone(st, confirmed)
+		st.busy = 0
+		st.nextAt = os.clock() + (confirmed and 0.28 or 0.12)
+	end
+
+	local manDribHeld = false
+	local function resetChargeBarFast()
+		if gameChargeMod then
+			if type(gameChargeMod.Cancel) == "function" then pcall(gameChargeMod.Cancel) end
+			if type(gameChargeMod.Reset) == "function" then pcall(gameChargeMod.Reset) end
+			if type(gameChargeMod.Hide) == "function" then pcall(gameChargeMod.Hide) end
+		end
+		local pg = LP:FindFirstChild("PlayerGui")
+		local mainGui = pg and pg:FindFirstChild("Main")
+		local gameGui = mainGui and mainGui:FindFirstChild("Game")
+		local charge = gameGui and gameGui:FindFirstChild("Charge")
+		if charge then
+			local bar = charge:FindFirstChild("Bar")
+			if bar and bar:IsA("GuiObject") then bar.Size = UDim2.new(0, 0, 1, 0) end
+			charge.Visible = false
+		end
+	end
+
+	local function stepAutoDribble(ball, hrp, now)
+		local st = autoState.dribble
+		local hum = getHum()
+		local cf = hrp.CFrame
+		local mv = (hum and hum.MoveDirection.Magnitude >= 0.05) and flatUnit(hum.MoveDirection, cf.LookVector) or flatUnit(cf.LookVector)
+
+		-- Layer 1: Istemci topun ag sahibiyken ve ayaginin yanindayken yumusak hiz takibi
+		if type(isnetworkowner) == "function" and (ball.Position - hrp.Position).Magnitude <= 10 then
+			local okOwn, owned = pcall(isnetworkowner, ball)
+			if okOwn and owned == true then
+				local targetPos = hrp.Position + mv * 2.4
+				local dx, dz = targetPos.X - ball.Position.X, targetPos.Z - ball.Position.Z
+				local hv = hrp.AssemblyLinearVelocity
+				local vx = clamp(dx * 5 + hv.X, -26, 26)
+				local vz = clamp(dz * 5 + hv.Z, -26, 26)
+				ball.AssemblyLinearVelocity = Vector3.new(vx, ball.AssemblyLinearVelocity.Y, vz)
+			end
+		end
+
+		-- Layer 2: Saf Dribble paketi (rate-limit'e yakalanmadan)
+		if not canSendAuto(st, now) then return end
+		st.busy = now
+		local payload = {
+			ball,
+			"Dribble",
+			0.08,
+			{ Ground = false, Right = false, Left = false },
+			cf,
+			cf:VectorToObjectSpace(mv),
+		}
+		firePayload(payload, function(ok)
+			markAutoDone(st, ok)
+		end)
+	end
+
 	local lastSkillCheck = 0
-	local inFlight = { shoot = 0, dribble = 0, tackle = 0, save = 0 }
-	track(RunService.RenderStepped:Connect(function()
+	local function stepAutoReach()
 		if not alive or not canAct() then return end
+		if not S.manDribble or S.manShoot then manDribHeld = false end
 		local now = os.clock()
-		if S.autoShoot or S.autoDribble or S.autoTackle or S.autoSave then
+		if S.autoShoot or S.autoDribble or S.autoTackle or S.autoSave or manDribHeld then
 			local ball, hrp = getBall(), getHRP()
 			if ball and hrp and not ball.Anchored then
-				if S.autoShoot and (now - inFlight.shoot) > 0.18 and inRange(hrp, ball, S.autoShootRange) then
-					inFlight.shoot = now
-					kickBall("Shoot", getEffectivePower("Shoot", ball), {
-						ball = ball,
-						ignoreCooldown = true,
-						onResult = function() inFlight.shoot = 0 end,
-					})
-				elseif S.autoDribble and (now - inFlight.dribble) > 0.18 and inRange(hrp, ball, S.autoDribbleRange) then
-					inFlight.dribble = now
-					local hum = getHum()
-					kickBall("Dribble", 0.12, {
-						ball = ball,
-						dir = flatUnit(hum and hum.MoveDirection, hrp.CFrame.LookVector),
-						autoAim = false,
-						ignoreCooldown = true,
-						onResult = function() inFlight.dribble = 0 end,
-					})
-				elseif S.autoTackle and (now - inFlight.tackle) > 0.18 and inRange(hrp, ball, S.autoTackleRange) and isOpponentHoldingBall(ball) then
-					inFlight.tackle = now
-					kickBall("Tackle", 0, {
-						ball = ball,
-						dir = flatUnit(ball.Position - hrp.Position, hrp.CFrame.LookVector),
-						autoAim = false,
-						ignoreCooldown = true,
-						onResult = function() inFlight.tackle = 0 end,
-					})
+				local didShoot = false
+				if S.autoShoot and inRange(hrp, ball, S.autoShootRange) then
+					didShoot = true
+					local st = autoState.shoot
+					if canSendAuto(st, now) then
+						st.busy = now
+						local aimPt = cachedAimPt or getAimPoint()
+						local shootDir = aimPt and (aimPt - ball.Position) or nil
+						local pwr = getAutoShootPower(ball)
+						kickBall("Shoot", pwr, {
+							ball = ball,
+							dir = shootDir,
+							autoAim = true,
+							ignoreCooldown = true,
+							onResult = function(ok) markAutoDone(st, ok) end,
+						})
+					end
 				end
-				if S.autoSave and (now - inFlight.save) > 0.18 then
-					local ownSide = getAttackSide() == "Home" and "Away" or "Home"
-					local netCF = getBox(getGoalTargetObj(ownSide))
-					if netCF then
-						local netDist = (ball.Position - netCF.Position).Magnitude
-						local toward = netCF.Position - ball.Position
-						local spd = ball.AssemblyLinearVelocity.Magnitude
-						if inRange(hrp, ball, S.autoSaveRange) and netDist <= S.autoSaveRange and spd > 2 and toward.Magnitude > 0.1 and ball.AssemblyLinearVelocity.Unit:Dot(toward.Unit) > 0.3 then
-							inFlight.save = now
-							kickBall("Save", 0.15, {
-								ball = ball,
-								dir = -toward,
-								autoAim = false,
-								ignoreCooldown = true,
-								onResult = function() inFlight.save = 0 end,
-							})
+				if not didShoot and S.autoDribble and inRange(hrp, ball, S.autoDribbleRange) then
+					stepAutoDribble(ball, hrp, now)
+				elseif not didShoot and manDribHeld and S.manDribble and not S.manShoot then
+					resetChargeBarFast()
+					if inRange(hrp, ball, S.manDribbleRange) then
+						stepAutoDribble(ball, hrp, now)
+					end
+				end
+				if S.autoTackle and inRange(hrp, ball, S.autoTackleRange) and isOpponentHoldingBall(ball) then
+					local st = autoState.tackle
+					if canSendAuto(st, now) then
+						st.busy = now
+						kickBall("Tackle", 0, {
+							ball = ball,
+							dir = flatUnit(ball.Position - hrp.Position, hrp.CFrame.LookVector),
+							autoAim = false,
+							noSnap = true,
+							ignoreCooldown = true,
+							onResult = function(ok) markAutoDone(st, ok) end,
+						})
+					end
+				end
+				if S.autoSave then
+					local st = autoState.save
+					if canSendAuto(st, now) then
+						local ownSide = getAttackSide() == "Home" and "Away" or "Home"
+						local netCF = getBox(getGoalTargetObj(ownSide))
+						if netCF then
+							local netDist = (ball.Position - netCF.Position).Magnitude
+							local toward = netCF.Position - ball.Position
+							local spd = ball.AssemblyLinearVelocity.Magnitude
+							if inRange(hrp, ball, S.autoSaveRange) and netDist <= S.autoSaveRange and spd > 2 and toward.Magnitude > 0.1 and ball.AssemblyLinearVelocity.Unit:Dot(toward.Unit) > 0.3 then
+								st.busy = now
+								kickBall("Save", 0.15, {
+									ball = ball,
+									dir = -toward,
+									autoAim = false,
+									ignoreCooldown = true,
+									onResult = function(ok) markAutoDone(st, ok) end,
+								})
+							end
 						end
 					end
 				end
@@ -4063,44 +4218,263 @@ hCredits:AddCredit("3qr311", "Scripter")
 			lastSkillCheck = now
 			checkAutoSkill()
 		end
-	end))
+	end
+
+	track(RunService.RenderStepped:Connect(stepAutoReach))
+
+	local manualTok = 0
+	local lastManualTrig = 0
+	triggerManualReach = function(actionHint, livePower)
+		if not alive or not (S.manShoot or S.manDribble or S.manTackle or S.manSave) or not canAct() then return end
+		local now = os.clock()
+		if (now - lastManualTrig) < 0.06 then return end
+		lastManualTrig = now
+		manualTok = manualTok + 1
+		local myTok = manualTok
+		local pwrSnap = livePower
+		if pwrSnap == nil then pwrSnap = getLiveChargePower() end
+
+		task.spawn(function()
+			local start = os.clock()
+			local confirmed = false
+			local busy = false
+			local nextTry = 0
+			while alive and myTok == manualTok and not confirmed and (os.clock() - start) < 0.38 do
+				local tNow = os.clock()
+				if not busy and tNow >= nextTry then
+					local ball, hrp = getBall(), getHRP()
+					if ball and hrp and not ball.Anchored then
+						local chosen = nil
+						if (actionHint == "Tackle" or actionHint == "Dive") and S.manTackle and inRange(hrp, ball, S.manTackleRange) then
+							chosen = "Tackle"
+						elseif S.manSave and inRange(hrp, ball, S.manSaveRange) then
+							local vals = getValues()
+							local goalie = vals and vals:FindFirstChild("Goalie")
+							if not (S.manShoot or S.manDribble) or (goalie and goalie.Value == true) then
+								chosen = "Save"
+							end
+						end
+						if not chosen and S.manTackle and inRange(hrp, ball, S.manTackleRange) and (isOpponentHoldingBall(ball) or not (S.manShoot or S.manDribble)) then
+							chosen = "Tackle"
+						end
+						if not chosen and S.manShoot and S.manDribble then
+							if pwrSnap <= 0.3 and inRange(hrp, ball, S.manDribbleRange) then
+								chosen = "Dribble"
+							elseif inRange(hrp, ball, S.manShootRange) then
+								chosen = "Shoot"
+							end
+						elseif not chosen and S.manShoot and inRange(hrp, ball, S.manShootRange) then
+							chosen = "Shoot"
+						elseif not chosen and S.manDribble and inRange(hrp, ball, S.manDribbleRange) then
+							chosen = "Dribble"
+						end
+
+						if chosen then
+							busy = true
+							if chosen == "Dribble" then
+								local hum = getHum()
+								local cf = hrp.CFrame
+								local mv = (hum and hum.MoveDirection.Magnitude >= 0.05) and hum.MoveDirection or cf.LookVector
+								local payload = {
+									ball,
+									"Dribble",
+									0.08,
+									{ Ground = false, Right = false, Left = false },
+									cf,
+									cf:VectorToObjectSpace(mv),
+								}
+								firePayload(payload, function(ok)
+									busy = false
+									if ok then confirmed = true else nextTry = os.clock() + 0.06 end
+								end)
+							elseif chosen == "Tackle" then
+								kickBall("Tackle", 0, {
+									ball = ball,
+									dir = flatUnit(ball.Position - hrp.Position, hrp.CFrame.LookVector),
+									autoAim = false,
+									noSnap = true,
+									ignoreCooldown = true,
+									onResult = function(ok)
+										busy = false
+										if ok then confirmed = true else nextTry = os.clock() + 0.06 end
+									end,
+								})
+							elseif chosen == "Save" then
+								local ownSide = getAttackSide() == "Home" and "Away" or "Home"
+								local netCF = getBox(getGoalTargetObj(ownSide))
+								local clearDir = netCF and (ball.Position - netCF.Position) or hrp.CFrame.LookVector
+								kickBall("Save", 0.15, {
+									ball = ball,
+									dir = flatUnit(clearDir, hrp.CFrame.LookVector),
+									autoAim = false,
+									noSnap = true,
+									ignoreCooldown = true,
+									onResult = function(ok)
+										busy = false
+										if ok then confirmed = true else nextTry = os.clock() + 0.06 end
+									end,
+								})
+							elseif chosen == "Shoot" then
+								local pwr = S.powerLock and getEffectivePower("Shoot", ball) or ((pwrSnap > 0.3) and pwrSnap or getAutoShootPower(ball))
+								local useAim = S.lmbAutoAim or S.autoAim
+								local aimPt = useAim and (cachedAimPt or getAimPoint()) or nil
+								local shootDir = aimPt and (aimPt - ball.Position) or nil
+								kickBall("Shoot", pwr, {
+									ball = ball,
+									dir = shootDir,
+									autoAim = useAim,
+									noSnap = not useAim,
+									ignoreCooldown = true,
+									onResult = function(ok)
+										busy = false
+										if ok then confirmed = true else nextTry = os.clock() + 0.06 end
+									end,
+								})
+							end
+						end
+					end
+				end
+				RunService.RenderStepped:Wait()
+			end
+		end)
+	end
+
+	local manTapTok = 0
+	local function onManualKickPress()
+		if not alive or not (S.manDribble and not S.manShoot) or not canAct() then return end
+		manDribHeld = true
+		lastPressDribAt = os.clock()
+		resetChargeBarFast()
+		manTapTok = manTapTok + 1
+		local myTok = manTapTok
+		local sentImmediate = false
+		local ball0, hrp0 = getBall(), getHRP()
+		if ball0 and hrp0 and not ball0.Anchored and inRange(hrp0, ball0, S.manDribbleRange) then
+			autoState.dribble.nextAt = 0
+			stepAutoDribble(ball0, hrp0, os.clock())
+			sentImmediate = true
+		end
+		task.spawn(function()
+			local t0 = os.clock()
+			local confirmed = false
+			local busy = false
+			local nextTry = sentImmediate and (t0 + 0.10) or 0
+			while alive and myTok == manTapTok and not confirmed and (os.clock() - t0) < 0.35 do
+				if manDribHeld then
+					RunService.RenderStepped:Wait()
+				else
+					local now = os.clock()
+					if not busy and now >= nextTry then
+						local b, h = getBall(), getHRP()
+						if b and h and not b.Anchored and inRange(h, b, S.manDribbleRange) then
+							local hum = getHum()
+							local cf = h.CFrame
+							local mv = (hum and hum.MoveDirection.Magnitude >= 0.05) and flatUnit(hum.MoveDirection, cf.LookVector) or flatUnit(cf.LookVector)
+							local payload = {
+								b,
+								"Dribble",
+								0.08,
+								{ Ground = false, Right = false, Left = false },
+								cf,
+								cf:VectorToObjectSpace(mv),
+							}
+							busy = true
+							firePayload(payload, function(ok)
+								busy = false
+								if ok then confirmed = true else nextTry = os.clock() + 0.10 end
+							end)
+						end
+					end
+					RunService.RenderStepped:Wait()
+				end
+			end
+		end)
+	end
 
 	local function onManualKickRelease()
-		if boundsHookSeen then return end
-		if not (S.reachOn or S.lmbAutoAim or S.powerLock) or not canAct() then return end
-		local capturedPower = S.powerLock and getEffectivePower("Shoot") or getLiveChargePower()
+		manDribHeld = false
+		if S.manDribble and not S.manShoot and not S.manTackle and not S.manSave and (os.clock() - lastPressDribAt) < 0.25 then
+			resetChargeBarFast()
+			return
+		end
+		local hasManual = S.manShoot or S.manDribble or S.manTackle or S.manSave
+		if not hasManual and boundsHookSeen then return end
+		if not hasManual and not (S.reachOn or S.lmbAutoAim or S.powerLock) then return end
+		if not canAct() then return end
+		local capturedPower = (not hasManual and S.powerLock) and getEffectivePower("Shoot") or getLiveChargePower()
 		if not gameTouchMod then
-			runReachWindow(0.55, nil, capturedPower)
+			if hasManual then
+				triggerManualReach(nil, capturedPower)
+			else
+				runReachWindow(0.55, nil, capturedPower)
+			end
 			return
 		end
 		task.defer(function()
 			if not alive then return end
 			if (os.clock() - lastDetectAt) < 0.08 then return end
-			runReachWindow(0.55, nil, capturedPower)
+			if hasManual then
+				triggerManualReach(nil, capturedPower)
+			else
+				runReachWindow(0.55, nil, capturedPower)
+			end
 		end)
 	end
+
+	track(UserInputService.InputBegan:Connect(function(inp, gp)
+		if gp or inp.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+		onManualKickPress()
+	end))
 
 	track(UserInputService.InputEnded:Connect(function(inp)
 		if inp.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
 		onManualKickRelease()
 	end))
 
-	-- Mobile Charge butonu dinleyicisi (mobilde LMB yerine Mobile.Charge kullanilir)
-	task.spawn(function()
+	-- Mobile Charge & Tackle buton dinleyicisi (mobilde LMB yerine Mobile.Charge/Tackle kullanilir)
+	local boundMobCharge, boundMobTackle = nil, nil
+	local function bindMobileTouchButtons()
 		local pg = LP:WaitForChild("PlayerGui", 10)
 		local mainG = pg and pg:WaitForChild("Main", 10)
 		local gameG = mainG and mainG:WaitForChild("Game", 10)
 		local mobG = gameG and gameG:WaitForChild("Mobile", 10)
-		local chBtn = mobG and mobG:FindFirstChild("Charge")
-		if chBtn and alive then
+		if not mobG or not alive then return end
+		local chBtn = mobG:FindFirstChild("Charge")
+		if chBtn and chBtn ~= boundMobCharge then
+			boundMobCharge = chBtn
+			track(chBtn.MouseEnter:Connect(onManualKickPress))
+			track(chBtn.MouseButton1Down:Connect(onManualKickPress))
+			track(chBtn.InputBegan:Connect(function(inp)
+				if inp.UserInputType == Enum.UserInputType.Touch then
+					onManualKickPress()
+				end
+			end))
 			track(chBtn.MouseLeave:Connect(onManualKickRelease))
+			track(chBtn.MouseButton1Up:Connect(onManualKickRelease))
 			track(chBtn.InputEnded:Connect(function(inp)
 				if inp.UserInputType == Enum.UserInputType.Touch then
 					onManualKickRelease()
 				end
 			end))
 		end
-	end)
+		local tkBtn = mobG:FindFirstChild("Tackle")
+		if tkBtn and tkBtn ~= boundMobTackle then
+			boundMobTackle = tkBtn
+			local function onMobTackle()
+				if S.manTackle and (os.clock() - lastDetectAt) >= 0.08 then
+					triggerManualReach("Tackle", 0)
+				end
+			end
+			track(tkBtn.MouseEnter:Connect(onMobTackle))
+			track(tkBtn.MouseButton1Down:Connect(onMobTackle))
+			track(tkBtn.InputBegan:Connect(function(inp)
+				if inp.UserInputType == Enum.UserInputType.Touch then
+					onMobTackle()
+				end
+			end))
+		end
+	end
+	task.spawn(bindMobileTouchButtons)
 
 	track(RunService.RenderStepped:Connect(function()
 		updateRangeRings()
@@ -4191,6 +4565,7 @@ hCredits:AddCredit("3qr311", "Scripter")
 		task.spawn(function()
 			hookGameModules()
 			applyInstantChargeOption(S.powerLock)
+			bindMobileTouchButtons()
 		end)
 		if S.fullbright then applyFullbright(true) end
 		if S.crosshair then crosshairGui.Enabled = true end
@@ -4205,6 +4580,10 @@ hCredits:AddCredit("3qr311", "Scripter")
 			elseif matchesKey(inp, keyBinds.autoDribble) and toggleRefs.autoDribble then toggleRefs.autoDribble.Set(not S.autoDribble)
 			elseif matchesKey(inp, keyBinds.autoTackle) and toggleRefs.autoTackle then toggleRefs.autoTackle.Set(not S.autoTackle)
 			elseif matchesKey(inp, keyBinds.autoSave) and toggleRefs.autoSave then toggleRefs.autoSave.Set(not S.autoSave)
+			elseif matchesKey(inp, keyBinds.manShoot) and toggleRefs.manShoot then toggleRefs.manShoot.Set(not S.manShoot)
+			elseif matchesKey(inp, keyBinds.manDribble) and toggleRefs.manDribble then toggleRefs.manDribble.Set(not S.manDribble)
+			elseif matchesKey(inp, keyBinds.manTackle) and toggleRefs.manTackle then toggleRefs.manTackle.Set(not S.manTackle)
+			elseif matchesKey(inp, keyBinds.manSave) and toggleRefs.manSave then toggleRefs.manSave.Set(not S.manSave)
 			elseif matchesKey(inp, keyBinds.autoChase) and toggleRefs.autoChase then toggleRefs.autoChase.Set(not S.autoChase)
 			elseif matchesKey(inp, keyBinds.ballEsp) and toggleRefs.ballEsp then toggleRefs.ballEsp.Set(not S.ballEsp)
 			elseif matchesKey(inp, keyBinds.playerEsp) and toggleRefs.playerEsp then toggleRefs.playerEsp.Set(not S.playerEsp) end
